@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Quiz — En place mon Loup</title>
+<script src="firebase-config.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, onValue, update, push, get, set }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const app = initializeApp(FIREBASE_CONFIG);
+const db  = getDatabase(app);
+
+let myId         = sessionStorage.getItem("quiz_id") || null;
+let myName       = sessionStorage.getItem("quiz_name") || null;
+let session      = {};
+let questions    = {};
+let participants = {};
+let timerInterval = null;
+
+// ── Views ─────────────────────────────────────────────────────────────────
+const views = ["join","waiting","question","answered","results","leaderboard","finished","closed"];
+function show(v) {
+  views.forEach(id => {
+    const el = document.getElementById("v-" + id);
+    if (el) el.style.display = id === v ? "flex" : "none";
+  });
+}
+
+// ── Live listeners ────────────────────────────────────────────────────────
+onValue(ref(db, "questions"), snap => { questions = snap.val() || {}; });
+
+onValue(ref(db, "participants"), snap => {
+  participants = snap.val() || {};
+  updateWaitingCount();
+});
+
+onValue(ref(db, "session"), snap => {
+  session = snap.val() || {};
+  syncState();
+});
+
+function updateWaitingCount() {
+  const el = document.getElementById("waiting-count");
+  if (el) el.textContent = Object.keys(participants).length;
+}
+
+function syncState() {
+  if (!myId) return; // not joined yet
+
+  const status = session.status;
+
+  if (status === "idle") { show("closed"); return; }
+  if (status === "finished") { showFinished(); return; }
+
+  if (status === "waiting") { show("waiting"); updateWaitingCount(); return; }
+
+  if (status === "question") {
+    const me = participants[myId];
+    const alreadyAnswered = me?.answers?.[session.currentQuestion] !== undefined;
+    if (alreadyAnswered) {
+      showAnsweredWait();
+    } else {
+      showQuestion();
+    }
+    return;
+  }
+
+  if (status === "results") { showResults(); return; }
+
+  if (status === "leaderboard") { showLeaderboardView(false); return; }
+}
+
+// ── Join ──────────────────────────────────────────────────────────────────
+document.getElementById("join-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const name  = document.getElementById("inp-name").value.trim();
+  const email = document.getElementById("inp-email").value.trim();
+  if (!name || !email) return;
+
+  // Check quiz is open
+  const snap = await get(ref(db, "session/status"));
+  const status = snap.val();
+  if (status === "idle" || status === "finished" || !status) {
+    alert("Le quiz n'est pas encore ouvert. Attends le signal de l'animateur!"); return;
+  }
+
+  const newRef = push(ref(db, "participants"));
+  myId = newRef.key;
+  myName = name;
+  sessionStorage.setItem("quiz_id", myId);
+  sessionStorage.setItem("quiz_name", myName);
+
+  await set(newRef, { name, email, score: 0, joinedAt: Date.now() });
+
+  document.getElementById("player-name").textContent = name;
+  document.getElementById("player-name-waiting").textContent = name;
+
+  syncState();
+});
+
+// ── Question ──────────────────────────────────────────────────────────────
+function showQuestion() {
+  const q = questions[session.currentQuestion];
+  if (!q) return;
+
+  show("question");
+
+  document.getElementById("q-q-text").textContent = q.question;
+
+  const colors = ["#e63946","#457b9d","#e9c46a","#2d6a4f"];
+  const icons  = ["🔺","🔷","🟡","🟢"];
+
+  const btns = document.querySelectorAll(".ans-btn");
+  btns.forEach((btn, i) => {
+    btn.style.background = colors[i];
+    btn.querySelector(".ans-icon").textContent = icons[i];
+    btn.querySelector(".ans-text").textContent = q.options[i];
+    btn.disabled = false;
+    btn.style.opacity = "1";
+    btn.onclick = () => submitAnswer(i);
+  });
+
+  // Timer countdown
+  clearInterval(timerInterval);
+  const timerEl = document.getElementById("q-timer-mobile");
+  const timerBar = document.getElementById("q-timer-bar-mobile");
+  const elapsed  = (Date.now() - session.questionStartedAt) / 1000;
+  let remaining  = Math.max(0, q.timer - elapsed);
+
+  function tick() {
+    const r = Math.max(0, remaining);
+    timerEl.textContent = Math.ceil(r);
+    timerBar.style.width = (r / q.timer * 100) + "%";
+    timerBar.style.background = r > q.timer * 0.4 ? "#40916c" : r > q.timer * 0.2 ? "#e9c46a" : "#e63946";
+    if (r <= 0) clearInterval(timerInterval);
+    remaining -= 0.1;
+  }
+  tick();
+  timerInterval = setInterval(tick, 100);
+}
+
+async function submitAnswer(answerIndex) {
+  const q = questions[session.currentQuestion];
+  if (!q || !myId) return;
+
+  const elapsed  = (Date.now() - session.questionStartedAt) / 1000;
+  const timeLeft = Math.max(0, q.timer - elapsed);
+  const points   = answerIndex === q.correct
+    ? Math.round(1000 * (timeLeft / q.timer))
+    : 0;
+
+  // Disable buttons
+  document.querySelectorAll(".ans-btn").forEach(b => {
+    b.disabled = true;
+    b.style.opacity = "0.5";
+  });
+
+  // Save answer
+  const me = participants[myId] || {};
+  const updates = {};
+  updates[`participants/${myId}/answers/${session.currentQuestion}`] = {
+    answer: answerIndex,
+    points,
+    answeredAt: Date.now()
+  };
+  updates[`participants/${myId}/score`] = (me.score || 0) + points;
+  await update(ref(db), updates);
+
+  showAnsweredWait(answerIndex === q.correct, points);
+}
+
+function showAnsweredWait(isCorrect, points) {
+  const v = document.getElementById("v-answered");
+  v.style.display = "flex";
+  document.getElementById("v-question").style.display = "none";
+  clearInterval(timerInterval);
+
+  if (isCorrect !== undefined) {
+    document.getElementById("ans-feedback").textContent = isCorrect ? "✅ Bonne réponse!" : "❌ Mauvaise réponse";
+    document.getElementById("ans-points").textContent   = isCorrect ? `+${points} pts` : "";
+    document.getElementById("ans-points").style.color   = isCorrect ? "#40916c" : "#e63946";
+  } else {
+    document.getElementById("ans-feedback").textContent = "⏳ Réponse enregistrée";
+    document.getElementById("ans-points").textContent   = "";
+  }
+}
+
+// ── Results ───────────────────────────────────────────────────────────────
+function showResults() {
+  show("results");
+  clearInterval(timerInterval);
+
+  const q  = questions[session.currentQuestion];
+  const me = participants[myId];
+  const myAnswer = me?.answers?.[session.currentQuestion];
+
+  if (!q || !myAnswer) return;
+
+  const isCorrect = myAnswer.answer === q.correct;
+  document.getElementById("res-feedback").textContent = isCorrect ? "✅ Bonne réponse!" : "❌ Mauvaise réponse";
+  document.getElementById("res-correct-ans").textContent = `La bonne réponse : ${q.options[q.correct]}`;
+  document.getElementById("res-pts-earned").textContent  = `+${myAnswer.points || 0} pts`;
+  document.getElementById("res-total-score").textContent = `Score total : ${me.score || 0} pts`;
+}
+
+// ── Leaderboard ───────────────────────────────────────────────────────────
+function showLeaderboardView(final) {
+  show(final ? "finished" : "leaderboard");
+  clearInterval(timerInterval);
+
+  const sorted = Object.entries(participants)
+    .sort(([,a],[,b]) => (b.score||0) - (a.score||0));
+
+  const myRank = sorted.findIndex(([id]) => id === myId) + 1;
+  const total  = sorted.length;
+
+  const rankId  = final ? "fin-rank"  : "lb-rank";
+  const nameId  = final ? "fin-name"  : "lb-name";
+  const scoreId = final ? "fin-score" : "lb-score";
+  const subId   = final ? "fin-sub"   : "lb-sub";
+  const listId  = final ? "fin-list"  : "lb-list";
+
+  document.getElementById(rankId).textContent  = `#${myRank} / ${total}`;
+  document.getElementById(nameId).textContent  = myName || "";
+  document.getElementById(scoreId).textContent = `${(participants[myId]?.score)||0} pts`;
+
+  if (final) {
+    const prizes = [null,"🏅 Hoodie Limoilou en vrac","🥈 T-shirt Limoilou en vrac","🥉 Gourde Limoilou en vrac"];
+    document.getElementById(subId).textContent = prizes[myRank] || "Merci d'avoir participé! 🎉";
+  } else {
+    document.getElementById(subId).textContent = myRank <= 3 ? "Tu es dans le podium! 🏆" : "";
+  }
+
+  document.getElementById(listId).innerHTML = sorted.slice(0, 10).map(([id, p], i) => `
+    <div class="lb-row ${id === myId ? 'me' : ''}">
+      <span class="lb-rk">${i+1}</span>
+      <span class="lb-nm">${p.name}</span>
+      <span class="lb-sc">${p.score||0} pts</span>
+    </div>`).join("");
+}
+
+function showFinished() { showLeaderboardView(true); }
+
+// ── Restore session ───────────────────────────────────────────────────────
+if (myId && myName) {
+  document.getElementById("player-name").textContent = myName;
+  document.getElementById("player-name-waiting").textContent = myName;
+  show("waiting"); // temporary until syncState fires
+}
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --green:  #2d6a4f;
+    --green2: #40916c;
+    --gold:   #e9c46a;
+    --red:    #e63946;
+    --bg:     #f8f5f0;
+    --text:   #1a1a2e;
+    --card:   #ffffff;
+    --border: #e0ddd7;
+    --muted:  #777;
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  .view {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 2rem 1.5rem;
+    text-align: center;
+  }
+
+  /* ── HEADER STRIP ── */
+  .site-header {
+    width: 100%;
+    background: var(--green);
+    color: white;
+    padding: .75rem 1.5rem;
+    font-weight: 700;
+    font-size: 1rem;
+    text-align: center;
+    position: fixed;
+    top: 0; left: 0;
+    z-index: 10;
+  }
+  .view { padding-top: 4.5rem; }
+
+  /* ── JOIN ── */
+  #v-join { background: linear-gradient(160deg, #2d6a4f 0%, #40916c 50%, #1a1a2e 100%); }
+  #v-join h1 { font-size: 2rem; color: white; margin-bottom: .25rem; }
+  #v-join p  { color: rgba(255,255,255,.7); margin-bottom: 2rem; font-size: 1rem; }
+
+  .join-card {
+    background: white;
+    border-radius: 20px;
+    padding: 2rem;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.2);
+  }
+
+  .form-group { display: flex; flex-direction: column; gap: .4rem; margin-bottom: 1.25rem; text-align: left; }
+  label { font-size: .85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  input {
+    padding: .8rem 1rem;
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    font-size: 1rem;
+    font-family: inherit;
+    transition: border-color .2s;
+    background: var(--bg);
+  }
+  input:focus { outline: none; border-color: var(--green2); }
+
+  .btn-join {
+    width: 100%;
+    padding: 1rem;
+    background: var(--green2);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 1.1rem;
+    font-weight: 800;
+    cursor: pointer;
+    transition: background .2s;
+  }
+  .btn-join:hover { background: var(--green); }
+
+  .prize-hint {
+    margin-top: 1.5rem;
+    font-size: .8rem;
+    color: rgba(255,255,255,.6);
+    max-width: 320px;
+    line-height: 1.5;
+  }
+
+  /* ── WAITING ── */
+  #v-waiting { background: linear-gradient(135deg, var(--bg) 0%, #d8f3dc 100%); gap: 1.5rem; }
+  .waiting-avatar {
+    width: 80px; height: 80px;
+    background: var(--green2);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2rem; color: white;
+  }
+  #v-waiting h2 { font-size: 1.6rem; }
+  #v-waiting .sub { color: var(--muted); font-size: 1rem; }
+  .pulse { animation: pulse 1.5s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── QUESTION ── */
+  #v-question {
+    background: linear-gradient(160deg, #0f3460 0%, #16213e 100%);
+    color: white;
+    gap: 1.25rem;
+    justify-content: flex-start;
+    padding-top: 5rem;
+  }
+
+  .q-timer-strip { width: 100%; display: flex; align-items: center; gap: .75rem; }
+  #q-timer-bar-wrap-mobile { flex: 1; height: 12px; background: #ffffff22; border-radius: 6px; overflow: hidden; }
+  #q-timer-bar-mobile { height: 100%; border-radius: 6px; transition: width .1s linear; width: 100%; }
+  #q-timer-mobile { font-size: 1.8rem; font-weight: 900; min-width: 2.5rem; text-align: right; }
+
+  #q-q-text { font-size: clamp(1.1rem, 4vw, 1.5rem); font-weight: 800; line-height: 1.35; max-width: 400px; }
+
+  .ans-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; width: 100%; max-width: 400px; }
+
+  .ans-btn {
+    border: none;
+    border-radius: 14px;
+    padding: 1rem;
+    display: flex; flex-direction: column; align-items: center; gap: .4rem;
+    font-family: inherit;
+    font-weight: 700;
+    font-size: .95rem;
+    color: white;
+    cursor: pointer;
+    text-shadow: 0 1px 3px rgba(0,0,0,.3);
+    box-shadow: 0 4px 16px rgba(0,0,0,.15);
+    transition: transform .1s, opacity .2s;
+    min-height: 90px;
+    word-break: break-word;
+  }
+  .ans-btn:active { transform: scale(.96); }
+  .ans-icon { font-size: 1.5rem; }
+
+  /* ── ANSWERED ── */
+  #v-answered { background: linear-gradient(160deg, #0f3460 0%, #16213e 100%); color: white; gap: 1rem; }
+  #ans-feedback { font-size: 2rem; font-weight: 800; }
+  #ans-points   { font-size: 1.5rem; font-weight: 700; }
+  .ans-waiting  { color: #aaa; font-size: 1rem; }
+  .ans-waiting-dot { animation: pulse 1.2s infinite; display: inline-block; }
+
+  /* ── RESULTS ── */
+  #v-results { background: linear-gradient(135deg, var(--bg) 0%, #d8f3dc 100%); gap: 1rem; }
+  #res-feedback    { font-size: 2rem; font-weight: 800; }
+  #res-correct-ans { font-size: 1rem; color: var(--green); font-weight: 600; }
+  #res-pts-earned  { font-size: 1.6rem; font-weight: 800; color: var(--green2); }
+  #res-total-score { font-size: 1rem; color: var(--muted); }
+
+  /* ── LEADERBOARD & FINISHED ── */
+  #v-leaderboard, #v-finished { background: linear-gradient(160deg, #1a1a2e 0%, #2d6a4f55 100%); color: white; gap: 1rem; }
+
+  .my-rank-card {
+    background: var(--green);
+    border-radius: 16px;
+    padding: 1.25rem 2rem;
+    text-align: center;
+  }
+  .my-rank-num  { font-size: 2.5rem; font-weight: 900; color: var(--gold); }
+  .my-rank-name { font-size: 1.2rem; font-weight: 700; }
+  .my-rank-score{ font-size: 1rem; color: rgba(255,255,255,.7); }
+  .my-rank-sub  { font-size: .9rem; margin-top: .5rem; color: var(--gold); font-weight: 600; }
+
+  .lb-list-mobile { width: 100%; max-width: 400px; }
+  .lb-row { display: flex; gap: .75rem; padding: .5rem .75rem; border-radius: 8px; background: #ffffff10; margin-bottom: .3rem; align-items: center; }
+  .lb-row.me { background: var(--green); font-weight: 700; }
+  .lb-rk { font-size: .9rem; color: #aaa; min-width: 1.5rem; }
+  .lb-nm { flex: 1; font-size: 1rem; }
+  .lb-sc { font-size: .9rem; color: var(--gold); }
+
+  /* ── CLOSED ── */
+  #v-closed { background: var(--bg); }
+  #v-closed h2 { font-size: 1.5rem; margin-bottom: .5rem; }
+  #v-closed p  { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="site-header">🎬 Quiz — En place mon Loup</div>
+
+<!-- JOIN -->
+<div id="v-join" class="view" style="display:flex">
+  <h1>Participe au quiz!</h1>
+  <p>Cinéma en plein air · Place Limouloise</p>
+  <div class="join-card">
+    <form id="join-form">
+      <div class="form-group">
+        <label>Ton prénom et nom</label>
+        <input type="text" id="inp-name" placeholder="Marie Tremblay" required autocomplete="name">
+      </div>
+      <div class="form-group">
+        <label>Ton courriel</label>
+        <input type="email" id="inp-email" placeholder="marie@exemple.com" required autocomplete="email">
+      </div>
+      <button type="submit" class="btn-join">Je participe! →</button>
+    </form>
+  </div>
+  <p class="prize-hint">
+    🏅 1re place : Hoodie Limoilou en vrac<br>
+    🥈 2e place : T-shirt Limoilou en vrac<br>
+    🥉 3e place : Gourde Limoilou en vrac<br>
+    <br>
+    Tes coordonnées servent uniquement au tirage.
+  </p>
+</div>
+
+<!-- WAITING -->
+<div id="v-waiting" class="view">
+  <div class="waiting-avatar">😎</div>
+  <h2>Bienvenue, <span id="player-name-waiting">—</span>!</h2>
+  <p class="sub"><span id="waiting-count">0</span> joueur(s) connecté(s)</p>
+  <p class="sub pulse">⏳ Le quiz commence bientôt…</p>
+</div>
+
+<!-- QUESTION -->
+<div id="v-question" class="view">
+  <div class="q-timer-strip">
+    <div id="q-timer-bar-wrap-mobile"><div id="q-timer-bar-mobile"></div></div>
+    <div id="q-timer-mobile">30</div>
+  </div>
+  <div id="q-q-text">Chargement…</div>
+  <div class="ans-grid">
+    <button class="ans-btn"><span class="ans-icon"></span><span class="ans-text"></span></button>
+    <button class="ans-btn"><span class="ans-icon"></span><span class="ans-text"></span></button>
+    <button class="ans-btn"><span class="ans-icon"></span><span class="ans-text"></span></button>
+    <button class="ans-btn"><span class="ans-icon"></span><span class="ans-text"></span></button>
+  </div>
+</div>
+
+<!-- ANSWERED (waiting for results) -->
+<div id="v-answered" class="view">
+  <div id="ans-feedback">⏳ Réponse enregistrée</div>
+  <div id="ans-points"></div>
+  <p class="ans-waiting">En attente des résultats <span class="ans-waiting-dot">…</span></p>
+</div>
+
+<!-- RESULTS (after question) -->
+<div id="v-results" class="view">
+  <div id="res-feedback"></div>
+  <div id="res-correct-ans"></div>
+  <div id="res-pts-earned"></div>
+  <div id="res-total-score"></div>
+</div>
+
+<!-- LEADERBOARD (intermédiaire) -->
+<div id="v-leaderboard" class="view">
+  <div class="my-rank-card">
+    <div class="my-rank-num" id="lb-rank">—</div>
+    <div class="my-rank-name" id="lb-name">—</div>
+    <div class="my-rank-score" id="lb-score">—</div>
+    <div class="my-rank-sub" id="lb-sub"></div>
+  </div>
+  <p id="player-name" style="display:none"></p>
+  <div class="lb-list-mobile" id="lb-list"></div>
+</div>
+
+<!-- FINISHED -->
+<div id="v-finished" class="view">
+  <div style="font-size:3rem">🎉</div>
+  <div class="my-rank-card">
+    <div class="my-rank-num" id="fin-rank">—</div>
+    <div class="my-rank-name" id="fin-name">—</div>
+    <div class="my-rank-score" id="fin-score">—</div>
+    <div class="my-rank-sub" id="fin-sub"></div>
+  </div>
+  <div class="lb-list-mobile" id="fin-list"></div>
+  <p style="font-size:.85rem;color:#aaa;margin-top:.5rem">Limoilou en vrac · limoilouenvrac.com</p>
+</div>
+
+<!-- CLOSED -->
+<div id="v-closed" class="view">
+  <h2>Le quiz est fermé.</h2>
+  <p>Merci d'avoir participé!</p>
+</div>
+
+</body>
+</html>

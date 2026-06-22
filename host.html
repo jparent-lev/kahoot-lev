@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Projecteur — Quiz En place mon Loup</title>
+<script src="firebase-config.js"></script>
+<!-- QR Code library -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, onValue, get }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const app = initializeApp(FIREBASE_CONFIG);
+const db  = getDatabase(app);
+
+let questions = {};
+let session   = {};
+let participants = {};
+let timerInterval = null;
+
+// ── Live data ─────────────────────────────────────────────────────────────
+onValue(ref(db, "questions"), snap => {
+  questions = snap.val() || {};
+});
+
+onValue(ref(db, "participants"), snap => {
+  participants = snap.val() || {};
+  updateAnswerCount();
+});
+
+onValue(ref(db, "session"), snap => {
+  session = snap.val() || {};
+  render();
+});
+
+// ── Render dispatcher ─────────────────────────────────────────────────────
+function render() {
+  clearInterval(timerInterval);
+  const views = ["view-idle","view-waiting","view-question","view-results","view-leaderboard","view-finished"];
+  views.forEach(v => document.getElementById(v).style.display = "none");
+
+  switch(session.status) {
+    case "waiting":     showWaiting();     break;
+    case "question":    showQuestion();    break;
+    case "results":     showResults();     break;
+    case "leaderboard": showLeaderboard(false); break;
+    case "finished":    showLeaderboard(true);  break;
+    default:            showIdle();
+  }
+}
+
+// ── Views ─────────────────────────────────────────────────────────────────
+function showIdle() {
+  document.getElementById("view-idle").style.display = "flex";
+}
+
+function showWaiting() {
+  const v = document.getElementById("view-waiting");
+  v.style.display = "flex";
+
+  // Generate QR code once
+  const qrEl = document.getElementById("qr-code");
+  if (!qrEl.innerHTML) {
+    new QRCode(qrEl, {
+      text: APP_URL,
+      width: 260,
+      height: 260,
+      colorDark: "#2d6a4f",
+      colorLight: "#f8f5f0",
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  }
+
+  document.getElementById("join-url").textContent = APP_URL;
+  document.getElementById("waiting-count").textContent =
+    Object.keys(participants).length;
+}
+
+function showQuestion() {
+  const q = questions[session.currentQuestion];
+  if (!q) return;
+
+  const v = document.getElementById("view-question");
+  v.style.display = "flex";
+
+  document.getElementById("q-text").textContent = q.question;
+
+  const colors  = ["#e63946","#457b9d","#e9c46a","#2d6a4f"];
+  const icons   = ["🔺","🔷","🟡","🟢"];
+  const optEls  = document.querySelectorAll(".q-option");
+  q.options.forEach((opt, i) => {
+    optEls[i].style.background = colors[i];
+    optEls[i].querySelector(".opt-icon").textContent = icons[i];
+    optEls[i].querySelector(".opt-text").textContent = opt;
+  });
+
+  // Timer
+  const elapsed = (Date.now() - session.questionStartedAt) / 1000;
+  let remaining  = Math.max(0, q.timer - elapsed);
+  const timerEl  = document.getElementById("q-timer");
+  const timerBar = document.getElementById("q-timer-bar");
+
+  function updateTimer() {
+    const r = Math.max(0, remaining);
+    timerEl.textContent = Math.ceil(r);
+    timerBar.style.width = (r / q.timer * 100) + "%";
+    timerBar.style.background = r > q.timer * 0.4 ? "#40916c" : r > q.timer * 0.2 ? "#e9c46a" : "#e63946";
+    remaining -= 0.1;
+  }
+  updateTimer();
+  timerInterval = setInterval(updateTimer, 100);
+
+  updateAnswerCount();
+}
+
+function updateAnswerCount() {
+  if (session.status !== "question") return;
+  const countEl = document.getElementById("q-answer-count");
+  if (!countEl) return;
+  const answered = Object.values(participants).filter(p =>
+    p.answers && p.answers[session.currentQuestion] !== undefined
+  ).length;
+  const total = Object.keys(participants).length;
+  countEl.textContent = `${answered} / ${total} réponses`;
+}
+
+function showResults() {
+  const q = questions[session.currentQuestion];
+  if (!q) return;
+
+  const v = document.getElementById("view-results");
+  v.style.display = "flex";
+
+  document.getElementById("res-q-text").textContent = q.question;
+
+  // Count answers
+  const counts = [0,0,0,0];
+  let total = 0;
+  Object.values(participants).forEach(p => {
+    const a = p.answers?.[session.currentQuestion];
+    if (a !== undefined && a.answer !== undefined) {
+      counts[a.answer]++;
+      total++;
+    }
+  });
+
+  const colors  = ["#e63946","#457b9d","#e9c46a","#2d6a4f"];
+  const icons   = ["🔺","🔷","🟡","🟢"];
+  const bars    = document.querySelectorAll(".res-bar-wrap");
+
+  bars.forEach((wrap, i) => {
+    const pct = total > 0 ? (counts[i] / total * 100) : 0;
+    const bar   = wrap.querySelector(".res-bar");
+    const label = wrap.querySelector(".res-label");
+    const count = wrap.querySelector(".res-count");
+
+    wrap.querySelector(".res-icon").textContent  = icons[i];
+    wrap.querySelector(".res-opt-text").textContent = q.options[i];
+    bar.style.height   = Math.max(pct, 3) + "%";
+    bar.style.background = i === q.correct
+      ? "#40916c"
+      : (i === q.correct ? "#40916c" : colors[i] + "cc");
+
+    if (i === q.correct) {
+      wrap.querySelector(".res-opt-text").innerHTML += " ✅";
+      bar.style.outline = "3px solid white";
+    }
+    count.textContent = counts[i];
+    label.textContent = Math.round(pct) + "%";
+  });
+}
+
+function showLeaderboard(final) {
+  const v = document.getElementById(final ? "view-finished" : "view-leaderboard");
+  v.style.display = "flex";
+
+  const sorted = Object.entries(participants)
+    .sort(([,a],[,b]) => (b.score||0) - (a.score||0));
+
+  const targetId = final ? "final-podium" : "interim-podium";
+  const listId   = final ? "final-list"   : "interim-list";
+
+  const podiumEl = document.getElementById(targetId);
+  const listEl   = document.getElementById(listId);
+
+  // Top 3 podium
+  const prizes = ["🏅 Hoodie LEV", "🥈 T-shirt LEV", "🥉 Gourde LEV"];
+  const podiumOrder = [1, 0, 2]; // visual: 2nd, 1st, 3rd
+
+  podiumEl.innerHTML = podiumOrder.map(i => {
+    const entry = sorted[i];
+    if (!entry) return `<div class="podium-slot empty"></div>`;
+    const [, p] = entry;
+    const heights = ["110px","80px","65px"]; // 1st=tallest, 2nd=medium, 3rd=shortest
+    return `
+      <div class="podium-slot" style="--h:${heights[i]}">
+        <div class="podium-name">${p.name}</div>
+        <div class="podium-score">${p.score||0} pts</div>
+        <div class="podium-base" style="height:${heights[i]}">
+          <span class="podium-rank">${i+1}</span>
+          ${final && prizes[i] ? `<div class="podium-prize">${prizes[i]}</div>` : ""}
+        </div>
+      </div>`;
+  }).join("");
+
+  // Rest of list (4-10)
+  listEl.innerHTML = sorted.slice(3, 10).map(([, p], i) => `
+    <div class="list-row">
+      <span class="list-rank">${i+4}</span>
+      <span class="list-name">${p.name}</span>
+      <span class="list-score">${p.score||0} pts</span>
+    </div>`).join("");
+}
+
+// Initial render
+render();
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --green:  #2d6a4f;
+    --green2: #40916c;
+    --gold:   #e9c46a;
+    --bg:     #1a1a2e;
+    --text:   #f8f5f0;
+  }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .view {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    padding: 3rem;
+    text-align: center;
+  }
+
+  /* ── IDLE ── */
+  #view-idle { background: linear-gradient(135deg, #1a1a2e 0%, #2d6a4f 100%); }
+  #view-idle h1 { font-size: 3rem; margin-bottom: .5rem; }
+  #view-idle p  { font-size: 1.5rem; color: var(--gold); }
+
+  /* ── WAITING ── */
+  #view-waiting { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); gap: 1.5rem; }
+  #view-waiting h1 { font-size: 2.5rem; color: var(--gold); }
+  #qr-code { background: #f8f5f0; padding: 1rem; border-radius: 16px; display: inline-block; }
+  #join-url { font-size: 1.6rem; font-weight: 700; color: white; letter-spacing: .05em; }
+  .waiting-sub { font-size: 1.2rem; color: #aaa; }
+  #waiting-count { font-size: 1.8rem; font-weight: 700; color: var(--green2); }
+
+  /* ── QUESTION ── */
+  #view-question {
+    background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+    justify-content: space-between;
+    padding: 2rem 3rem;
+  }
+
+  .q-header { width: 100%; display: flex; align-items: center; gap: 1rem; }
+  #q-timer-wrap { flex: 1; height: 18px; background: #ffffff22; border-radius: 9px; overflow: hidden; }
+  #q-timer-bar  { height: 100%; border-radius: 9px; transition: width .1s linear, background .3s; width: 100%; }
+  #q-timer      { font-size: 2.5rem; font-weight: 900; min-width: 3rem; text-align: right; }
+
+  #q-text {
+    font-size: clamp(1.8rem, 4vw, 3rem);
+    font-weight: 800;
+    line-height: 1.2;
+    max-width: 900px;
+    text-shadow: 0 2px 8px rgba(0,0,0,.4);
+  }
+
+  .q-options-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    width: 100%;
+    max-width: 1000px;
+  }
+
+  .q-option {
+    border-radius: 14px;
+    padding: 1.2rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-size: clamp(1.1rem, 2.5vw, 1.6rem);
+    font-weight: 700;
+    text-shadow: 0 1px 4px rgba(0,0,0,.3);
+    box-shadow: 0 4px 16px rgba(0,0,0,.2);
+  }
+  .opt-icon { font-size: 1.5em; }
+
+  #q-answer-count { font-size: 1.1rem; color: #aaa; }
+
+  /* ── RESULTS ── */
+  #view-results {
+    background: linear-gradient(135deg, #1a1a2e 0%, #0f3460 100%);
+    justify-content: space-between;
+    padding: 2rem 3rem;
+  }
+
+  #res-q-text {
+    font-size: clamp(1.4rem, 3vw, 2.2rem);
+    font-weight: 800;
+    max-width: 900px;
+  }
+
+  .res-bars { display: flex; align-items: flex-end; justify-content: center; gap: 2rem; height: 300px; width: 100%; max-width: 900px; }
+
+  .res-bar-wrap { display: flex; flex-direction: column; align-items: center; gap: .4rem; flex: 1; height: 100%; justify-content: flex-end; }
+  .res-label    { font-size: 1rem; font-weight: 700; color: var(--gold); }
+  .res-bar      { width: 100%; border-radius: 8px 8px 0 0; min-height: 4px; transition: height .6s ease; }
+  .res-count    { font-size: 1.6rem; font-weight: 900; }
+  .res-icon     { font-size: 1.6rem; }
+  .res-opt-text { font-size: .95rem; text-align: center; max-width: 120px; }
+
+  /* ── LEADERBOARD / FINISHED ── */
+  #view-leaderboard, #view-finished {
+    background: linear-gradient(135deg, #1a1a2e 0%, #2d6a4f55 100%);
+    gap: 1.5rem;
+    justify-content: space-between;
+    padding: 2rem 3rem;
+  }
+
+  .lb-title { font-size: 2.5rem; font-weight: 900; color: var(--gold); }
+
+  .podium { display: flex; align-items: flex-end; justify-content: center; gap: 2rem; }
+
+  .podium-slot { display: flex; flex-direction: column; align-items: center; gap: .4rem; width: 200px; }
+  .podium-slot.empty { opacity: 0; }
+  .podium-name  { font-size: 1.3rem; font-weight: 800; }
+  .podium-score { font-size: 1rem; color: var(--gold); }
+  .podium-base  {
+    width: 100%;
+    background: var(--green);
+    border-radius: 10px 10px 0 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: .25rem;
+  }
+  .podium-base:nth-child(1) { background: #c9b037; }
+  .podium-rank  { font-size: 2.5rem; font-weight: 900; }
+  .podium-prize { font-size: .85rem; font-weight: 700; color: white; text-align: center; padding: .2rem .5rem; }
+
+  /* 1st place bigger */
+  .podium-slot:nth-child(2) .podium-name  { font-size: 1.6rem; }
+  .podium-slot:nth-child(2) .podium-score { font-size: 1.2rem; color: #ffd700; }
+  .podium-slot:nth-child(2) .podium-base  { background: #c9b037; }
+
+  .lb-list { width: 100%; max-width: 600px; }
+  .list-row {
+    display: flex; align-items: center; gap: 1rem;
+    padding: .5rem 1rem; border-radius: 8px;
+    background: #ffffff10; margin-bottom: .35rem;
+  }
+  .list-rank  { font-size: 1rem; font-weight: 700; color: #aaa; width: 2rem; }
+  .list-name  { flex: 1; font-size: 1.1rem; font-weight: 600; }
+  .list-score { font-size: 1rem; color: var(--gold); font-weight: 700; }
+
+  /* Confetti placeholder */
+  .confetti-hint { font-size: 4rem; animation: bounce 1s infinite alternate; }
+  @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-10px); } }
+</style>
+</head>
+<body>
+
+<!-- IDLE -->
+<div id="view-idle" class="view">
+  <h1>🎬 En place mon Loup</h1>
+  <p>Quiz interactif — Place Limouloise</p>
+</div>
+
+<!-- WAITING -->
+<div id="view-waiting" class="view">
+  <h1>📱 Rejoins le quiz!</h1>
+  <div id="qr-code"></div>
+  <div id="join-url">chargement…</div>
+  <p class="waiting-sub">ou scanne le code QR</p>
+  <p class="waiting-sub"><span id="waiting-count">0</span> participant(s) connecté(s)</p>
+</div>
+
+<!-- QUESTION -->
+<div id="view-question" class="view">
+  <div class="q-header">
+    <div id="q-timer-wrap"><div id="q-timer-bar"></div></div>
+    <div id="q-timer">30</div>
+  </div>
+  <div id="q-text">Question…</div>
+  <div class="q-options-grid">
+    <div class="q-option"><span class="opt-icon"></span><span class="opt-text"></span></div>
+    <div class="q-option"><span class="opt-icon"></span><span class="opt-text"></span></div>
+    <div class="q-option"><span class="opt-icon"></span><span class="opt-text"></span></div>
+    <div class="q-option"><span class="opt-icon"></span><span class="opt-text"></span></div>
+  </div>
+  <div id="q-answer-count"></div>
+</div>
+
+<!-- RESULTS -->
+<div id="view-results" class="view">
+  <div id="res-q-text">Question…</div>
+  <div class="res-bars">
+    <div class="res-bar-wrap">
+      <div class="res-label"></div>
+      <div class="res-bar"></div>
+      <div class="res-count"></div>
+      <div class="res-icon"></div>
+      <div class="res-opt-text"></div>
+    </div>
+    <div class="res-bar-wrap">
+      <div class="res-label"></div>
+      <div class="res-bar"></div>
+      <div class="res-count"></div>
+      <div class="res-icon"></div>
+      <div class="res-opt-text"></div>
+    </div>
+    <div class="res-bar-wrap">
+      <div class="res-label"></div>
+      <div class="res-bar"></div>
+      <div class="res-count"></div>
+      <div class="res-icon"></div>
+      <div class="res-opt-text"></div>
+    </div>
+    <div class="res-bar-wrap">
+      <div class="res-label"></div>
+      <div class="res-bar"></div>
+      <div class="res-count"></div>
+      <div class="res-icon"></div>
+      <div class="res-opt-text"></div>
+    </div>
+  </div>
+</div>
+
+<!-- LEADERBOARD (intermédiaire) -->
+<div id="view-leaderboard" class="view">
+  <div class="lb-title">📊 Classement</div>
+  <div class="podium" id="interim-podium"></div>
+  <div class="lb-list" id="interim-list"></div>
+</div>
+
+<!-- FINISHED -->
+<div id="view-finished" class="view">
+  <div class="confetti-hint">🎉</div>
+  <div class="lb-title">🏆 Résultats finaux!</div>
+  <div class="podium" id="final-podium"></div>
+  <div class="lb-list" id="final-list"></div>
+  <p style="font-size:1rem;color:#aaa;">Félicitations aux gagnant·e·s — Limoilou en vrac</p>
+</div>
+
+</body>
+</html>
