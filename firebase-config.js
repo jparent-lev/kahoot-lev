@@ -13,7 +13,7 @@ const FIREBASE_CONFIG = {
 };
 
 // Mot de passe pour accéder au panneau admin
-const ADMIN_PASSWORD = "Parj8005";
+const ADMIN_PASSWORD = "L1m01l0u";
 
 // URL publique de votre app (après déploiement Netlify)
 const APP_URL = "https://kahoot-lev.netlify.app";
