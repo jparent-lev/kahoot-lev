@@ -108,6 +108,16 @@ function showQuestion() {
 
   show("question");
 
+  // Question image
+  const qImgWrap = document.getElementById("q-img-wrap");
+  const qImgEl   = document.getElementById("q-img");
+  if (q.questionImage) {
+    qImgEl.src = q.questionImage;
+    qImgWrap.style.display = "block";
+  } else {
+    qImgWrap.style.display = "none";
+  }
+
   document.getElementById("q-q-text").textContent = q.question;
 
   const colors = ["#e63946","#457b9d","#e9c46a","#2d6a4f"];
@@ -121,6 +131,19 @@ function showQuestion() {
     btn.disabled = false;
     btn.style.opacity = "1";
     btn.onclick = () => submitAnswer(i);
+
+    // Option image
+    const imgEl  = btn.querySelector(".ans-img");
+    const imgUrl = q.optionImages?.[i];
+    if (imgUrl) {
+      imgEl.src = imgUrl;
+      imgEl.style.display = "block";
+      btn.classList.add("has-img");
+    } else {
+      imgEl.src = "";
+      imgEl.style.display = "none";
+      btn.classList.remove("has-img");
+    }
   });
 
   // Timer countdown
@@ -397,7 +420,12 @@ if (myId && myName) {
     word-break: break-word;
   }
   .ans-btn:active { transform: scale(.96); }
-  .ans-icon { font-size: 1.5rem; }
+  .ans-icon { font-size: 1.5rem; flex-shrink: 0; }
+  .ans-img  { width:100%; max-height:80px; object-fit:contain; border-radius:8px; display:none; }
+  .ans-btn.has-img { flex-direction:column; align-items:stretch; }
+  .ans-btn.has-img .ans-icon { font-size:1rem; }
+  .ans-btn.has-img .ans-img  { display:block; }
+  .q-img-mobile { max-width:100%; max-height:22vh; border-radius:10px; object-fit:contain; margin-bottom:.5rem; }
 
   /* ── ANSWERED ── */
   #v-answered { background: linear-gradient(160deg, #0f3460 0%, #16213e 100%); color: white; gap: 1rem; }
@@ -484,12 +512,13 @@ if (myId && myName) {
     <div id="q-timer-bar-wrap-mobile"><div id="q-timer-bar-mobile"></div></div>
     <div id="q-timer-mobile">30</div>
   </div>
+  <div id="q-img-wrap" style="display:none"><img id="q-img" src="" alt="" class="q-img-mobile"></div>
   <div id="q-q-text">Chargement…</div>
   <div class="ans-grid">
-    <button class="ans-btn"><span class="ans-icon"></span><span class="ans-text"></span></button>
-    <button class="ans-btn"><span class="ans-icon"></span><span class="ans-text"></span></button>
-    <button class="ans-btn"><span class="ans-icon"></span><span class="ans-text"></span></button>
-    <button class="ans-btn"><span class="ans-icon"></span><span class="ans-text"></span></button>
+    <button class="ans-btn"><span class="ans-icon"></span><img class="ans-img" src="" alt="" style="display:none"><span class="ans-text"></span></button>
+    <button class="ans-btn"><span class="ans-icon"></span><img class="ans-img" src="" alt="" style="display:none"><span class="ans-text"></span></button>
+    <button class="ans-btn"><span class="ans-icon"></span><img class="ans-img" src="" alt="" style="display:none"><span class="ans-text"></span></button>
+    <button class="ans-btn"><span class="ans-icon"></span><img class="ans-img" src="" alt="" style="display:none"><span class="ans-text"></span></button>
   </div>
 </div>
 

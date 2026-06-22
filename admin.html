@@ -9,6 +9,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getDatabase, ref, set, push, remove, onValue, update, get }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getStorage, ref as sRef, uploadBytes, getDownloadURL }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
 // ── Auth ──────────────────────────────────────────────────────────────────
 const pwd = prompt("Mot de passe admin :");
@@ -18,178 +20,181 @@ if (pwd !== ADMIN_PASSWORD) {
 }
 
 // ── Firebase init ─────────────────────────────────────────────────────────
-const app = initializeApp(FIREBASE_CONFIG);
-const db  = getDatabase(app);
+const app     = initializeApp(FIREBASE_CONFIG);
+const db      = getDatabase(app);
+const storage = getStorage(app);
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-const questionsRef  = ref(db, "questions");
-const sessionRef    = ref(db, "session");
+// ── State ─────────────────────────────────────────────────────────────────
+const questionsRef   = ref(db, "questions");
+const sessionRef     = ref(db, "session");
 const participantsRef = ref(db, "participants");
 
-let questions = {};
-let session   = {};
+let questions    = {};
+let session      = {};
 let participants = {};
+let currentQuestionImage = null;
+let currentOptionImages  = [null, null, null, null];
+let timerInterval = null;
 
 // ── Live listeners ────────────────────────────────────────────────────────
-onValue(questionsRef, snap => {
-  questions = snap.val() || {};
-  renderQuestions();
-});
+onValue(questionsRef,    snap => { questions    = snap.val() || {}; renderQuestions(); });
+onValue(sessionRef,      snap => { session      = snap.val() || {}; renderSessionControls(); });
+onValue(participantsRef, snap => { participants = snap.val() || {}; renderParticipants(); });
 
-onValue(sessionRef, snap => {
-  session = snap.val() || {};
-  renderSessionControls();
-});
-
-onValue(participantsRef, snap => {
-  participants = snap.val() || {};
-  renderParticipants();
-});
-
-// ── UI helpers ────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────
 function el(id) { return document.getElementById(id); }
 
-function renderQuestions() {
-  const list = el("question-list");
-  const sorted = Object.entries(questions).sort(([,a],[,b]) => a.order - b.order);
-  if (!sorted.length) {
-    list.innerHTML = "<p class='empty'>Aucune question pour l'instant.</p>";
-    return;
+function setPreview(imgEl, clearBtn, url) {
+  if (url) {
+    imgEl.src = url;
+    imgEl.style.display = "block";
+    clearBtn.style.display = "inline-flex";
+  } else {
+    imgEl.src = "";
+    imgEl.style.display = "none";
+    clearBtn.style.display = "none";
   }
+}
+
+async function uploadImg(file, path) {
+  const r = sRef(storage, path);
+  await uploadBytes(r, file);
+  return getDownloadURL(r);
+}
+
+// ── Image preview callbacks (global) ─────────────────────────────────────
+window.onImgChange = function(input, key, idx) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    if (key === "q") {
+      setPreview(el("prev-q-img"), el("clear-q-img"), e.target.result);
+    } else {
+      setPreview(el(`prev-o${idx}-img`), el(`clear-o${idx}-img`), e.target.result);
+    }
+  };
+  reader.readAsDataURL(file);
+};
+
+window.clearImg = function(key, idx) {
+  if (key === "q") {
+    el("form-q-img").value = "";
+    currentQuestionImage = null;
+    setPreview(el("prev-q-img"), el("clear-q-img"), null);
+  } else {
+    el(`form-o${idx}-img`).value = "";
+    currentOptionImages[idx] = null;
+    setPreview(el(`prev-o${idx}-img`), el(`clear-o${idx}-img`), null);
+  }
+};
+
+// ── Render questions ──────────────────────────────────────────────────────
+function renderQuestions() {
+  const list   = el("question-list");
+  const sorted = Object.entries(questions).sort(([,a],[,b]) => a.order - b.order);
+  if (!sorted.length) { list.innerHTML = "<p class='empty'>Aucune question pour l'instant.</p>"; return; }
+
   list.innerHTML = sorted.map(([id, q], i) => `
-    <div class="q-card" id="qcard-${id}">
+    <div class="q-card">
       <div class="q-header">
         <span class="q-num">#${i+1}</span>
         <span class="q-timer-badge">${q.timer}s</span>
         <div class="q-actions">
           <button onclick="editQuestion('${id}')" class="btn-icon" title="Modifier">✏️</button>
           <button onclick="deleteQuestion('${id}')" class="btn-icon" title="Supprimer">🗑️</button>
-          ${i > 0 ? `<button onclick="moveQuestion('${id}', -1)" class="btn-icon" title="Monter">⬆️</button>` : ""}
-          ${i < sorted.length-1 ? `<button onclick="moveQuestion('${id}', 1)" class="btn-icon" title="Descendre">⬇️</button>` : ""}
+          ${i > 0 ? `<button onclick="moveQuestion('${id}',-1)" class="btn-icon">⬆️</button>` : ""}
+          ${i < sorted.length-1 ? `<button onclick="moveQuestion('${id}',1)" class="btn-icon">⬇️</button>` : ""}
         </div>
       </div>
+      ${q.questionImage ? `<img src="${q.questionImage}" class="q-thumb" alt="">` : ""}
       <p class="q-text">${q.question}</p>
       <div class="q-options">
         ${q.options.map((opt, oi) => `
-          <span class="opt ${oi === q.correct ? 'correct' : ''}">${['🔺','🔷','🟡','🟢'][oi]} ${opt}</span>
-        `).join("")}
+          <span class="opt ${oi === q.correct ? 'correct' : ''}">
+            ${q.optionImages?.[oi] ? `<img src="${q.optionImages[oi]}" class="opt-thumb" alt="">` : ['🔺','🔷','🟡','🟢'][oi]}
+            ${opt}
+          </span>`).join("")}
       </div>
-    </div>
-  `).join("");
+    </div>`).join("");
 }
 
+// ── Render session controls ───────────────────────────────────────────────
 function renderSessionControls() {
-  const status = session.status || "idle";
-  const sortedQ = Object.entries(questions).sort(([,a],[,b]) => a.order - b.order);
+  const status   = session.status || "idle";
+  const sortedQ  = Object.entries(questions).sort(([,a],[,b]) => a.order - b.order);
   const currentIdx = sortedQ.findIndex(([id]) => id === session.currentQuestion);
-  const totalQ = sortedQ.length;
+  const totalQ   = sortedQ.length;
 
-  const statusLabels = {
-    idle: "En attente",
-    waiting: "Salle d'attente",
-    question: "Question en cours",
-    results: "Résultats",
-    leaderboard: "Classement",
-    finished: "Terminé"
-  };
+  const statusLabels = { idle:"En attente", waiting:"Salle d'attente", question:"Question en cours", results:"Résultats", leaderboard:"Classement", finished:"Terminé" };
+  el("session-status").textContent  = statusLabels[status] || status;
+  el("session-progress").textContent = (status === "question" || status === "results") ? `Question ${currentIdx+1} / ${totalQ}` : "";
 
-  el("session-status").textContent = statusLabels[status] || status;
-  el("session-progress").textContent = status === "question" || status === "results"
-    ? `Question ${currentIdx+1} / ${totalQ}`
-    : "";
-
-  // Buttons logic
-  const btns = el("session-btns");
+  const btns  = el("session-btns");
   const pcount = Object.keys(participants).length;
-
   let html = "";
 
   if (status === "idle" || status === "finished") {
     html += `<button class="btn btn-green" onclick="startWaiting()">🎬 Ouvrir la salle d'attente</button>`;
-    if (status === "finished") {
-      html += `<button class="btn btn-red" onclick="resetQuiz()">🔄 Réinitialiser le quiz</button>`;
-    }
+    if (status === "finished") html += `<button class="btn btn-red" onclick="resetQuiz()">🔄 Réinitialiser</button>`;
   }
-
   if (status === "waiting") {
-    html += `<p class="pcount">${pcount} participant(s) connecté(s)</p>`;
-    if (totalQ > 0) {
-      html += `<button class="btn btn-green" onclick="startQuestion(sortedQ[0][0])">▶ Lancer le quiz (${totalQ} questions)</button>`;
-    } else {
-      html += `<p class="warn">Ajoutez des questions avant de lancer le quiz.</p>`;
-    }
+    html += `<p class="pcount">${pcount} participant(s)</p>`;
+    if (totalQ > 0) html += `<button class="btn btn-green" onclick="startQuestion('${sortedQ[0][0]}')">▶ Lancer (${totalQ} questions)</button>`;
+    else html += `<p class="warn">Ajoutez des questions d'abord.</p>`;
     html += `<button class="btn btn-red" onclick="resetQuiz()">✖ Annuler</button>`;
   }
-
   if (status === "results") {
     const nextIdx = currentIdx + 1;
-    if (nextIdx < totalQ) {
-      html += `<button class="btn btn-green" onclick="startQuestion('${sortedQ[nextIdx][0]}')">▶ Question suivante</button>`;
-    } else {
-      html += `<button class="btn btn-green" onclick="showFinalLeaderboard()">🏆 Afficher le classement final</button>`;
-    }
+    if (nextIdx < totalQ) html += `<button class="btn btn-green" onclick="startQuestion('${sortedQ[nextIdx][0]}')">▶ Question suivante</button>`;
+    else html += `<button class="btn btn-green" onclick="showFinalLeaderboard()">🏆 Classement final</button>`;
     html += `<button class="btn btn-outline" onclick="showLeaderboard()">📊 Classement intermédiaire</button>`;
   }
-
   if (status === "leaderboard") {
     const nextIdx = currentIdx + 1;
-    if (nextIdx < totalQ) {
-      html += `<button class="btn btn-green" onclick="startQuestion('${sortedQ[nextIdx][0]}')">▶ Prochaine question</button>`;
-    } else {
-      html += `<button class="btn btn-green" onclick="showFinalLeaderboard()">🏆 Classement final</button>`;
-    }
+    if (nextIdx < totalQ) html += `<button class="btn btn-green" onclick="startQuestion('${sortedQ[nextIdx][0]}')">▶ Prochaine question</button>`;
+    else html += `<button class="btn btn-green" onclick="showFinalLeaderboard()">🏆 Classement final</button>`;
   }
-
   if (status === "question") {
-    html += `<p class="pcount">⏱ Question en cours...</p>`;
+    html += `<p class="pcount">⏱ Question en cours…</p>`;
     html += `<button class="btn btn-yellow" onclick="forceEndQuestion()">⏭ Terminer maintenant</button>`;
   }
 
   btns.innerHTML = html;
-
-  // make sortedQ accessible
   window.sortedQ = sortedQ;
 }
 
+// ── Render participants ───────────────────────────────────────────────────
 function renderParticipants() {
-  const list = el("participant-list");
-  const sorted = Object.entries(participants)
-    .sort(([,a],[,b]) => (b.score||0) - (a.score||0));
-  if (!sorted.length) {
-    list.innerHTML = "<p class='empty'>Aucun participant pour l'instant.</p>";
-    return;
-  }
+  const list   = el("participant-list");
+  const sorted = Object.entries(participants).sort(([,a],[,b]) => (b.score||0) - (a.score||0));
+  if (!sorted.length) { list.innerHTML = "<p class='empty'>Aucun participant pour l'instant.</p>"; return; }
+
   list.innerHTML = `
     <table>
       <thead><tr><th>#</th><th>Nom</th><th>Courriel</th><th>Score</th></tr></thead>
-      <tbody>${sorted.map(([,p], i) => `
-        <tr>
-          <td>${i+1}</td>
-          <td>${p.name}</td>
-          <td>${p.email}</td>
-          <td>${p.score||0}</td>
-        </tr>`).join("")}
-      </tbody>
+      <tbody>${sorted.map(([,p],i) => `<tr><td>${i+1}</td><td>${p.name}</td><td>${p.email}</td><td>${p.score||0}</td></tr>`).join("")}</tbody>
     </table>
-    <button class="btn btn-outline" onclick="exportParticipants()" style="margin-top:1rem">
-      ⬇ Exporter CSV
-    </button>
-  `;
+    <button class="btn btn-outline" onclick="exportParticipants()" style="margin-top:1rem">⬇ Exporter CSV</button>`;
 }
 
 // ── Question CRUD ─────────────────────────────────────────────────────────
 window.editQuestion = function(id) {
   const q = questions[id];
-  el("form-id").value    = id;
-  el("form-q").value     = q.question;
-  el("form-o0").value    = q.options[0];
-  el("form-o1").value    = q.options[1];
-  el("form-o2").value    = q.options[2];
-  el("form-o3").value    = q.options[3];
-  el("form-correct").value = q.correct;
-  el("form-timer").value = q.timer;
+  el("form-id").value       = id;
+  el("form-q").value        = q.question;
+  [0,1,2,3].forEach(i => el(`form-o${i}`).value = q.options[i] || "");
+  el("form-correct").value  = q.correct;
+  el("form-timer").value    = q.timer;
   el("form-title").textContent = "Modifier la question";
-  el("question-form").scrollIntoView({behavior:"smooth"});
+
+  // Images
+  currentQuestionImage = q.questionImage || null;
+  setPreview(el("prev-q-img"), el("clear-q-img"), currentQuestionImage);
+  currentOptionImages = q.optionImages ? [...q.optionImages] : [null,null,null,null];
+  [0,1,2,3].forEach(i => setPreview(el(`prev-o${i}-img`), el(`clear-o${i}-img`), currentOptionImages[i]));
+
+  el("question-form").scrollIntoView({ behavior: "smooth" });
 };
 
 window.deleteQuestion = async function(id) {
@@ -199,47 +204,80 @@ window.deleteQuestion = async function(id) {
 
 window.moveQuestion = async function(id, dir) {
   const sorted = Object.entries(questions).sort(([,a],[,b]) => a.order - b.order);
-  const idx = sorted.findIndex(([qid]) => qid === id);
-  const swapIdx = idx + dir;
-  if (swapIdx < 0 || swapIdx >= sorted.length) return;
-
+  const idx    = sorted.findIndex(([qid]) => qid === id);
+  const swap   = idx + dir;
+  if (swap < 0 || swap >= sorted.length) return;
   const updates = {};
-  updates[`questions/${sorted[idx][0]}/order`]    = sorted[swapIdx][1].order;
-  updates[`questions/${sorted[swapIdx][0]}/order`] = sorted[idx][1].order;
+  updates[`questions/${sorted[idx][0]}/order`]  = sorted[swap][1].order;
+  updates[`questions/${sorted[swap][0]}/order`] = sorted[idx][1].order;
   await update(ref(db), updates);
 };
 
+// ── Form submit ───────────────────────────────────────────────────────────
 el("question-form").addEventListener("submit", async e => {
   e.preventDefault();
-  const id      = el("form-id").value;
-  const options = [0,1,2,3].map(i => el(`form-o${i}`).value.trim());
-  const data = {
-    question: el("form-q").value.trim(),
-    options,
-    correct:  parseInt(el("form-correct").value),
-    timer:    parseInt(el("form-timer").value),
-    order:    id ? questions[id].order : Date.now()
-  };
 
-  if (!data.question || options.some(o => !o)) {
-    alert("Remplissez tous les champs."); return;
+  const submitBtn = e.target.querySelector('[type=submit]');
+  submitBtn.disabled    = true;
+  submitBtn.textContent = "⏳ Enregistrement…";
+
+  const id   = el("form-id").value;
+  const qKey = id || push(questionsRef).key;
+
+  try {
+    // Upload question image if new file selected
+    let qImg = currentQuestionImage;
+    const qImgFile = el("form-q-img").files[0];
+    if (qImgFile) qImg = await uploadImg(qImgFile, `questions/${qKey}/question`);
+
+    // Upload option images if new files selected
+    const optImgs = [...currentOptionImages];
+    for (let i = 0; i < 4; i++) {
+      const f = el(`form-o${i}-img`).files[0];
+      if (f) optImgs[i] = await uploadImg(f, `questions/${qKey}/option_${i}`);
+    }
+
+    const options = [0,1,2,3].map(i => el(`form-o${i}`).value.trim());
+    if (!el("form-q").value.trim() || options.some(o => !o)) {
+      alert("Remplissez tous les champs de texte."); return;
+    }
+
+    const data = {
+      question:      el("form-q").value.trim(),
+      options,
+      correct:       parseInt(el("form-correct").value),
+      timer:         parseInt(el("form-timer").value),
+      order:         id ? questions[id].order : Date.now(),
+      questionImage: qImg || null,
+      optionImages:  optImgs
+    };
+
+    if (id) await update(ref(db, `questions/${id}`), data);
+    else    await set(ref(db, `questions/${qKey}`), data);
+
+    resetForm();
+  } catch (err) {
+    alert("Erreur lors de l'enregistrement : " + err.message);
+  } finally {
+    submitBtn.disabled    = false;
+    submitBtn.textContent = "💾 Enregistrer";
   }
-
-  if (id) {
-    await update(ref(db, `questions/${id}`), data);
-  } else {
-    await push(questionsRef, data);
-  }
-
-  resetForm();
 });
 
 function resetForm() {
   el("form-id").value = "";
   el("form-q").value  = "";
-  [0,1,2,3].forEach(i => el(`form-o${i}`).value = "");
-  el("form-correct").value = "0";
-  el("form-timer").value   = "30";
+  [0,1,2,3].forEach(i => {
+    el(`form-o${i}`).value = "";
+    el(`form-o${i}-img`).value = "";
+    setPreview(el(`prev-o${i}-img`), el(`clear-o${i}-img`), null);
+  });
+  el("form-q-img").value = "";
+  setPreview(el("prev-q-img"), el("clear-q-img"), null);
+  currentQuestionImage = null;
+  currentOptionImages  = [null, null, null, null];
+  el("form-correct").value     = "0";
+  el("form-timer").value       = "30";
   el("form-title").textContent = "Ajouter une question";
 }
 
@@ -247,55 +285,32 @@ el("btn-cancel-form").addEventListener("click", resetForm);
 
 // ── Session controls ──────────────────────────────────────────────────────
 window.startWaiting = async function() {
-  await set(sessionRef, { status: "waiting", currentQuestion: null, questionStartedAt: null });
-  // Clear previous participants
-  if (confirm("Effacer les participants de la session précédente ?")) {
-    await remove(participantsRef);
-  }
+  await set(sessionRef, { status:"waiting", currentQuestion:null, questionStartedAt:null });
+  if (confirm("Effacer les participants de la session précédente ?")) await remove(participantsRef);
 };
-
 window.startQuestion = async function(qid) {
-  await update(sessionRef, {
-    status: "question",
-    currentQuestion: qid,
-    questionStartedAt: Date.now()
-  });
+  await update(sessionRef, { status:"question", currentQuestion:qid, questionStartedAt:Date.now() });
 };
-
-window.forceEndQuestion = async function() {
-  await update(sessionRef, { status: "results" });
-};
-
-window.showLeaderboard = async function() {
-  await update(sessionRef, { status: "leaderboard" });
-};
-
-window.showFinalLeaderboard = async function() {
-  await update(sessionRef, { status: "finished" });
-};
-
+window.forceEndQuestion  = async function() { await update(sessionRef, { status:"results" }); };
+window.showLeaderboard   = async function() { await update(sessionRef, { status:"leaderboard" }); };
+window.showFinalLeaderboard = async function() { await update(sessionRef, { status:"finished" }); };
 window.resetQuiz = async function() {
   if (!confirm("Réinitialiser complètement le quiz ?")) return;
-  await set(sessionRef, { status: "idle", currentQuestion: null });
+  await set(sessionRef, { status:"idle", currentQuestion:null });
   await remove(participantsRef);
 };
 
 // ── Auto-advance timer ────────────────────────────────────────────────────
-let timerInterval = null;
-
 onValue(sessionRef, snap => {
   const s = snap.val() || {};
   clearInterval(timerInterval);
-
   if (s.status === "question" && s.currentQuestion && s.questionStartedAt) {
     const q = questions[s.currentQuestion];
     if (!q) return;
-
     timerInterval = setInterval(async () => {
-      const elapsed = (Date.now() - s.questionStartedAt) / 1000;
-      if (elapsed >= q.timer) {
+      if ((Date.now() - s.questionStartedAt) / 1000 >= q.timer) {
         clearInterval(timerInterval);
-        await update(sessionRef, { status: "results" });
+        await update(sessionRef, { status:"results" });
       }
     }, 500);
   }
@@ -303,151 +318,140 @@ onValue(sessionRef, snap => {
 
 // ── Export CSV ────────────────────────────────────────────────────────────
 window.exportParticipants = function() {
-  const sorted = Object.entries(participants)
-    .sort(([,a],[,b]) => (b.score||0) - (a.score||0));
-  const rows = [["Rang","Nom","Courriel","Score"]];
-  sorted.forEach(([,p], i) => rows.push([i+1, p.name, p.email, p.score||0]));
-  const csv = rows.map(r => r.join(",")).join("\n");
+  const sorted = Object.entries(participants).sort(([,a],[,b]) => (b.score||0) - (a.score||0));
+  const rows   = [["Rang","Nom","Courriel","Score"]];
+  sorted.forEach(([,p],i) => rows.push([i+1, p.name, p.email, p.score||0]));
   const a = document.createElement("a");
-  a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
+  a.href     = "data:text/csv;charset=utf-8," + encodeURIComponent(rows.map(r=>r.join(",")).join("\n"));
   a.download = "participants-quiz.csv";
   a.click();
 };
 </script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
   :root {
-    --green:  #2d6a4f;
-    --green2: #40916c;
-    --gold:   #e9c46a;
-    --red:    #c1121f;
-    --yellow: #f4a261;
-    --bg:     #f8f5f0;
-    --card:   #ffffff;
-    --text:   #1a1a2e;
-    --muted:  #666;
-    --border: #e0ddd7;
+    --green: #2d6a4f; --green2: #40916c; --gold: #e9c46a;
+    --red: #c1121f; --yellow: #f4a261;
+    --bg: #f8f5f0; --card: #ffffff; --text: #1a1a2e; --muted: #666; --border: #e0ddd7;
+  }
+  body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--text); }
+
+  header { background:var(--green); color:white; padding:1rem 2rem; display:flex; align-items:center; gap:1rem; box-shadow:0 2px 8px rgba(0,0,0,.2); }
+  header h1 { font-size:1.3rem; font-weight:700; }
+  .badge { background:var(--gold); color:var(--text); padding:.2rem .6rem; border-radius:20px; font-size:.8rem; font-weight:700; }
+
+  main { max-width:960px; margin:2rem auto; padding:0 1.5rem; display:grid; gap:2rem; }
+
+  .card { background:var(--card); border-radius:12px; box-shadow:0 2px 12px rgba(0,0,0,.07); padding:1.5rem; }
+  .card h2 { font-size:1.1rem; font-weight:700; margin-bottom:1rem; border-bottom:2px solid var(--border); padding-bottom:.5rem; }
+
+  .status-bar   { display:flex; align-items:center; gap:1rem; margin-bottom:1rem; }
+  .status-label { font-weight:600; }
+  .progress     { color:var(--muted); font-size:.9rem; }
+  .session-btns { display:flex; flex-wrap:wrap; gap:.75rem; margin-top:1rem; align-items:center; }
+  .pcount { color:var(--green2); font-weight:600; }
+  .warn   { color:var(--red); font-size:.9rem; }
+
+  .btn { padding:.6rem 1.2rem; border-radius:8px; border:none; font-weight:700; cursor:pointer; font-size:.95rem; transition:opacity .15s; }
+  .btn:hover   { opacity:.85; }
+  .btn-green   { background:var(--green2); color:white; }
+  .btn-red     { background:var(--red); color:white; }
+  .btn-yellow  { background:var(--yellow); color:var(--text); }
+  .btn-outline { background:transparent; border:2px solid var(--green2); color:var(--green2); }
+
+  .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+  @media(max-width:600px) { .form-grid { grid-template-columns:1fr; } }
+  .form-group     { display:flex; flex-direction:column; gap:.35rem; }
+  .form-group.full { grid-column:1/-1; }
+  label    { font-size:.85rem; font-weight:600; color:var(--muted); }
+  input[type=text], input[type=email], select {
+    padding:.55rem .75rem; border:1.5px solid var(--border); border-radius:8px;
+    font-size:.95rem; font-family:inherit; background:var(--bg); transition:border-color .15s;
+  }
+  input:focus, select:focus { outline:none; border-color:var(--green2); }
+
+  /* Image upload */
+  input[type=file] { display:none; }
+  .img-upload-row { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-top:.35rem; }
+  .btn-upload {
+    display:inline-flex; align-items:center; gap:.35rem;
+    padding:.4rem .85rem; background:var(--border); border-radius:7px;
+    font-size:.85rem; font-weight:600; cursor:pointer; transition:background .15s;
+  }
+  .btn-upload:hover { background:#d0cdc8; }
+  .btn-clear-img {
+    display:none; align-items:center; gap:.2rem;
+    padding:.35rem .7rem; background:#fde8ea; color:var(--red);
+    border:1.5px solid var(--red); border-radius:7px;
+    font-size:.8rem; font-weight:700; cursor:pointer;
+  }
+  .img-preview {
+    display:none; max-height:140px; max-width:100%; border-radius:8px;
+    margin-top:.5rem; border:2px solid var(--border); object-fit:contain;
+  }
+  .img-preview-sm {
+    display:none; max-height:70px; max-width:100%; border-radius:6px;
+    margin-top:.3rem; border:1.5px solid var(--border); object-fit:contain;
+  }
+  .img-upload-row-sm { display:flex; align-items:center; gap:.35rem; margin-top:.3rem; }
+  .btn-upload-sm {
+    display:inline-flex; align-items:center;
+    padding:.3rem .6rem; background:var(--border); border-radius:6px;
+    font-size:.8rem; cursor:pointer;
+  }
+  .btn-clear-sm {
+    display:none; padding:.25rem .5rem; background:#fde8ea; color:var(--red);
+    border:1px solid var(--red); border-radius:6px; font-size:.75rem; cursor:pointer;
   }
 
-  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+  /* Options grid */
+  .options-grid   { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
+  @media(max-width:600px) { .options-grid { grid-template-columns:1fr; } }
+  .option-input   { display:flex; align-items:flex-start; gap:.5rem; }
+  .option-icon    { font-size:1.1rem; flex-shrink:0; margin-top:.6rem; }
+  .option-fields  { flex:1; display:flex; flex-direction:column; }
 
-  header {
-    background: var(--green);
-    color: white;
-    padding: 1rem 2rem;
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,.2);
-  }
-  header h1 { font-size: 1.3rem; font-weight: 700; }
-  header .badge { background: var(--gold); color: var(--text); padding: .2rem .6rem; border-radius: 20px; font-size: .8rem; font-weight: 700; }
-
-  main { max-width: 960px; margin: 2rem auto; padding: 0 1.5rem; display: grid; gap: 2rem; }
-
-  .card {
-    background: var(--card);
-    border-radius: 12px;
-    box-shadow: 0 2px 12px rgba(0,0,0,.07);
-    padding: 1.5rem;
-  }
-  .card h2 { font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; border-bottom: 2px solid var(--border); padding-bottom: .5rem; }
-
-  /* Session controls */
-  .status-bar { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
-  .status-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); }
-  .status-label { font-weight: 600; }
-  .progress { color: var(--muted); font-size: .9rem; }
-
-  .session-btns { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1rem; align-items: center; }
-  .pcount { color: var(--green2); font-weight: 600; }
-  .warn { color: var(--red); font-size: .9rem; }
-
-  .btn { padding: .6rem 1.2rem; border-radius: 8px; border: none; font-weight: 700; cursor: pointer; font-size: .95rem; transition: opacity .15s; }
-  .btn:hover { opacity: .85; }
-  .btn-green  { background: var(--green2); color: white; }
-  .btn-red    { background: var(--red); color: white; }
-  .btn-yellow { background: var(--yellow); color: var(--text); }
-  .btn-outline { background: transparent; border: 2px solid var(--green2); color: var(--green2); }
-
-  /* Form */
-  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-  @media(max-width:600px) { .form-grid { grid-template-columns: 1fr; } }
-
-  .form-group { display: flex; flex-direction: column; gap: .35rem; }
-  .form-group.full { grid-column: 1 / -1; }
-  label { font-size: .85rem; font-weight: 600; color: var(--muted); }
-
-  input, select {
-    padding: .55rem .75rem;
-    border: 1.5px solid var(--border);
-    border-radius: 8px;
-    font-size: .95rem;
-    font-family: inherit;
-    background: var(--bg);
-    transition: border-color .15s;
-  }
-  input:focus, select:focus { outline: none; border-color: var(--green2); }
-
-  .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
-  @media(max-width:600px) { .options-grid { grid-template-columns: 1fr; } }
-
-  .option-input { display: flex; align-items: center; gap: .5rem; }
-  .option-icon  { font-size: 1.1rem; flex-shrink: 0; }
-
-  .form-actions { display: flex; gap: .75rem; margin-top: 1.25rem; }
+  .form-actions { display:flex; gap:.75rem; margin-top:1.25rem; }
 
   /* Question list */
-  .q-card {
-    border: 1.5px solid var(--border);
-    border-radius: 10px;
-    padding: 1rem;
-    margin-bottom: .75rem;
-    background: var(--bg);
-  }
-  .q-header { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; }
-  .q-num { font-weight: 700; color: var(--green); }
-  .q-timer-badge { background: var(--green); color: white; font-size: .75rem; padding: .15rem .5rem; border-radius: 20px; }
-  .q-actions { margin-left: auto; display: flex; gap: .25rem; }
-  .btn-icon { background: none; border: none; cursor: pointer; font-size: 1rem; padding: .2rem .3rem; border-radius: 4px; }
-  .btn-icon:hover { background: var(--border); }
-  .q-text { font-weight: 600; margin-bottom: .5rem; }
-  .q-options { display: flex; flex-wrap: wrap; gap: .4rem; }
-  .opt { padding: .2rem .6rem; border-radius: 6px; font-size: .85rem; background: var(--border); }
-  .opt.correct { background: #d8f3dc; color: var(--green); font-weight: 700; border: 1.5px solid var(--green2); }
-  .empty { color: var(--muted); font-style: italic; }
+  .q-card { border:1.5px solid var(--border); border-radius:10px; padding:1rem; margin-bottom:.75rem; background:var(--bg); }
+  .q-header  { display:flex; align-items:center; gap:.5rem; margin-bottom:.5rem; }
+  .q-num     { font-weight:700; color:var(--green); }
+  .q-timer-badge { background:var(--green); color:white; font-size:.75rem; padding:.15rem .5rem; border-radius:20px; }
+  .q-actions { margin-left:auto; display:flex; gap:.25rem; }
+  .btn-icon  { background:none; border:none; cursor:pointer; font-size:1rem; padding:.2rem .3rem; border-radius:4px; }
+  .btn-icon:hover { background:var(--border); }
+  .q-thumb   { max-height:80px; border-radius:6px; margin:.35rem 0; object-fit:contain; }
+  .q-text    { font-weight:600; margin-bottom:.5rem; }
+  .q-options { display:flex; flex-wrap:wrap; gap:.4rem; }
+  .opt       { padding:.2rem .6rem; border-radius:6px; font-size:.85rem; background:var(--border); display:flex; align-items:center; gap:.3rem; }
+  .opt.correct { background:#d8f3dc; color:var(--green); font-weight:700; border:1.5px solid var(--green2); }
+  .opt-thumb   { height:28px; border-radius:4px; object-fit:cover; }
+  .empty { color:var(--muted); font-style:italic; }
 
-  /* Participants table */
-  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-  th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--border); }
-  th { font-weight: 700; color: var(--muted); font-size: .8rem; text-transform: uppercase; }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: var(--bg); }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  th,td { text-align:left; padding:.5rem .75rem; border-bottom:1px solid var(--border); }
+  th { font-weight:700; color:var(--muted); font-size:.8rem; text-transform:uppercase; }
+  tr:last-child td { border-bottom:none; }
 </style>
 </head>
 <body>
 
 <header>
-  <div>
-    <h1>🎬 Quiz En place mon Loup</h1>
-  </div>
+  <h1>🎬 Quiz En place mon Loup</h1>
   <span class="badge">ADMIN</span>
 </header>
 
 <main>
 
-  <!-- Contrôles session -->
+  <!-- Session -->
   <div class="card">
     <h2>🎮 Contrôle du quiz</h2>
     <div class="status-bar">
-      <div class="status-dot"></div>
       <span class="status-label" id="session-status">Chargement…</span>
       <span class="progress" id="session-progress"></span>
     </div>
-    <div class="session-btns" id="session-btns">
-      <span style="color:var(--muted)">Chargement…</span>
-    </div>
+    <div class="session-btns" id="session-btns"><span style="color:var(--muted)">Chargement…</span></div>
   </div>
 
   <!-- Participants -->
@@ -462,37 +466,88 @@ window.exportParticipants = function() {
     <div id="question-list"><p class="empty">Chargement…</p></div>
   </div>
 
-  <!-- Formulaire question -->
-  <div class="card" id="question-form-card">
+  <!-- Formulaire -->
+  <div class="card">
     <h2 id="form-title">Ajouter une question</h2>
     <form id="question-form">
       <input type="hidden" id="form-id">
 
       <div class="form-grid">
+
+        <!-- Question text -->
         <div class="form-group full">
           <label>Question</label>
           <input type="text" id="form-q" placeholder="Ex: Dans quel quartier se trouve la Place Limouloise?" required>
         </div>
 
+        <!-- Question image -->
+        <div class="form-group full">
+          <label>Photo de la question (optionnel)</label>
+          <div class="img-upload-row">
+            <label class="btn-upload" for="form-q-img">📷 Choisir une image</label>
+            <input type="file" id="form-q-img" accept="image/*" onchange="onImgChange(this,'q')">
+            <button type="button" class="btn-clear-img" id="clear-q-img" onclick="clearImg('q')">✖ Retirer</button>
+          </div>
+          <img id="prev-q-img" class="img-preview" alt="Aperçu">
+        </div>
+
+        <!-- Options -->
         <div class="form-group full">
           <label>Réponses (entrez les 4 options)</label>
           <div class="options-grid">
+
             <div class="option-input">
               <span class="option-icon">🔺</span>
-              <input type="text" id="form-o0" placeholder="Option 1 (rouge)" required>
+              <div class="option-fields">
+                <input type="text" id="form-o0" placeholder="Option 1 (rouge)" required>
+                <div class="img-upload-row-sm">
+                  <label class="btn-upload-sm" for="form-o0-img">📷 Image</label>
+                  <input type="file" id="form-o0-img" accept="image/*" onchange="onImgChange(this,'o',0)">
+                  <button type="button" class="btn-clear-sm" id="clear-o0-img" onclick="clearImg('o',0)">✖</button>
+                </div>
+                <img id="prev-o0-img" class="img-preview-sm" alt="">
+              </div>
             </div>
+
             <div class="option-input">
               <span class="option-icon">🔷</span>
-              <input type="text" id="form-o1" placeholder="Option 2 (bleu)" required>
+              <div class="option-fields">
+                <input type="text" id="form-o1" placeholder="Option 2 (bleu)" required>
+                <div class="img-upload-row-sm">
+                  <label class="btn-upload-sm" for="form-o1-img">📷 Image</label>
+                  <input type="file" id="form-o1-img" accept="image/*" onchange="onImgChange(this,'o',1)">
+                  <button type="button" class="btn-clear-sm" id="clear-o1-img" onclick="clearImg('o',1)">✖</button>
+                </div>
+                <img id="prev-o1-img" class="img-preview-sm" alt="">
+              </div>
             </div>
+
             <div class="option-input">
               <span class="option-icon">🟡</span>
-              <input type="text" id="form-o2" placeholder="Option 3 (jaune)" required>
+              <div class="option-fields">
+                <input type="text" id="form-o2" placeholder="Option 3 (jaune)" required>
+                <div class="img-upload-row-sm">
+                  <label class="btn-upload-sm" for="form-o2-img">📷 Image</label>
+                  <input type="file" id="form-o2-img" accept="image/*" onchange="onImgChange(this,'o',2)">
+                  <button type="button" class="btn-clear-sm" id="clear-o2-img" onclick="clearImg('o',2)">✖</button>
+                </div>
+                <img id="prev-o2-img" class="img-preview-sm" alt="">
+              </div>
             </div>
+
             <div class="option-input">
               <span class="option-icon">🟢</span>
-              <input type="text" id="form-o3" placeholder="Option 4 (vert)" required>
+              <div class="option-fields">
+                <input type="text" id="form-o3" placeholder="Option 4 (vert)" required>
+                <div class="img-upload-row-sm">
+                  <label class="btn-upload-sm" for="form-o3-img">📷 Image</label>
+                  <input type="file" id="form-o3-img" accept="image/*" onchange="onImgChange(this,'o',3)">
+                  <button type="button" class="btn-clear-sm" id="clear-o3-img" onclick="clearImg('o',3)">✖</button>
+                </div>
+                <img id="prev-o3-img" class="img-preview-sm" alt="">
+              </div>
             </div>
+
           </div>
         </div>
 
@@ -516,6 +571,7 @@ window.exportParticipants = function() {
             <option value="60">60 secondes</option>
           </select>
         </div>
+
       </div>
 
       <div class="form-actions">

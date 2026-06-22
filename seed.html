@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chargement des questions — Quiz En place mon Loup</title>
+<script src="firebase-config.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 4rem auto; padding: 2rem; background: #f8f5f0; }
+  h1 { font-size: 1.4rem; margin-bottom: .5rem; }
+  p  { color: #555; margin-bottom: 2rem; }
+  .btn { padding: .8rem 2rem; background: #2d6a4f; color: white; border: none; border-radius: 10px; font-size: 1rem; font-weight: 700; cursor: pointer; }
+  .btn:disabled { background: #aaa; cursor: default; }
+  #log { margin-top: 2rem; font-size: .9rem; line-height: 1.8; }
+  .ok  { color: #2d6a4f; }
+  .err { color: #c1121f; }
+  .done { font-weight: 700; font-size: 1.1rem; margin-top: 1rem; color: #2d6a4f; }
+</style>
+</head>
+<body>
+
+<h1>📥 Chargement des questions du quiz</h1>
+<p>Clique sur le bouton pour pré-charger les 14 questions dans Firebase.<br>
+<strong>Attention :</strong> cela remplacera toutes les questions existantes.</p>
+
+<button class="btn" id="btn-seed" onclick="seed()">Charger les questions</button>
+
+<div id="log"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, set, remove }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const app = initializeApp(FIREBASE_CONFIG);
+const db  = getDatabase(app);
+
+const log = document.getElementById("log");
+function addLog(msg, cls = "") {
+  const p = document.createElement("p");
+  p.className = cls;
+  p.textContent = msg;
+  log.appendChild(p);
+}
+
+// ── Questions (bonne réponse = index 0-basé) ───────────────────────────────
+const QUESTIONS = [
+  {
+    question: "Savez-vous que cette soirée est rendu possible grâce à nos partenaires ?",
+    options: ["Oui", "Non", "Peut-être", "C'est quoi des partenaires ?"],
+    correct: 0,
+    timer: 20
+  },
+  {
+    question: "Dans « La Grande Séduction », quel professionnel le village essaie-t-il de convaincre de s'installer chez lui ?",
+    options: ["Un médecin", "Un avocat", "Un curé", "Un professeur"],
+    correct: 0,
+    timer: 20
+  },
+  {
+    question: "Dans la série de films « Les Boys », quel sport pratiquent les personnages ?",
+    options: ["Le soccer", "Le hockey", "Le baseball", "Le curling"],
+    correct: 1,
+    timer: 20
+  },
+  {
+    question: "Quel réalisateur québécois est derrière les superproductions « Dune » et « L'Arrivée » ?",
+    options: ["Xavier Dolan", "Denys Arcand", "Denis Villeneuve", "Jean-Marc Vallée"],
+    correct: 2,
+    timer: 20
+  },
+  {
+    question: "Dans le film d'animation « La guerre des tuques », comment s'appelle le gros chien Saint-Bernard ?",
+    options: ["Cléo", "Pitou", "Rex", "Bagot"],
+    correct: 0,
+    timer: 20
+  },
+  {
+    question: "Quel acteur incarne le célèbre joueur de hockey dans le film « Maurice Richard » ?",
+    options: ["Patrick Huard", "Roy Dupuis", "Antoine Bertrand", "Marc-André Grondin"],
+    correct: 1,
+    timer: 20
+  },
+  {
+    question: "Le film « C.R.A.Z.Y. » raconte l'histoire d'une famille avec combien de garçons ?",
+    options: ["3", "4", "5", "6"],
+    correct: 2,
+    timer: 20
+  },
+  {
+    question: "Dans la comédie « Bon Cop, Bad Cop », qu'est-ce qui réunit les deux policiers principaux ?",
+    options: ["Un vol de banque", "Un kidnapping", "Une course automobile", "Une enquête de meurtre"],
+    correct: 3,
+    timer: 20
+  },
+  {
+    question: "Dans la comédie « Starbuck », le personnage découvre qu'il est le père biologique de combien d'enfants ?",
+    options: ["50", "142", "533", "1000"],
+    correct: 2,
+    timer: 20
+  },
+  {
+    question: "Quel cinéaste et homme de théâtre de renommée mondiale est né à Québec ?",
+    options: ["Robert Lepage", "Denys Arcand", "Xavier Dolan", "Philippe Falardeau"],
+    correct: 0,
+    timer: 20
+  },
+  {
+    question: "Xavier Dolan a remporté un grand prix à Cannes en 2014 pour quel film ?",
+    options: ["Laurence Anyways", "Mommy", "J'ai tué ma mère", "Tom à la ferme"],
+    correct: 1,
+    timer: 20
+  },
+  {
+    question: "Quel personnage comique québécois est célèbre pour sa réplique « Think big, sti ! » ?",
+    options: ["Elvis Gratton", "Séraphin", "Ti-Coune", "Bougon"],
+    correct: 0,
+    timer: 20
+  },
+  {
+    question: "Le film « Monsieur Lazhar » met en scène un homme qui exerce quel métier ?",
+    options: ["Médecin", "Enseignant", "Policier", "Cuisinier"],
+    correct: 1,
+    timer: 20
+  },
+  {
+    question: "Que veut dire le « nomada » dans le nom KINOMADA, notre partenaire de cette soirée cinéma ?",
+    options: [
+      "L'organisme change de nom chaque année",
+      "Il crée des films un peu partout dans le monde",
+      "Il travaille uniquement la nuit",
+      "Il ne projette que de vieux films"
+    ],
+    correct: 1,
+    timer: 20
+  }
+];
+
+window.seed = async function() {
+  const btn = document.getElementById("btn-seed");
+  btn.disabled = true;
+  log.innerHTML = "";
+
+  try {
+    addLog("🗑 Suppression des questions existantes…");
+    await remove(ref(db, "questions"));
+
+    for (let i = 0; i < QUESTIONS.length; i++) {
+      const q = { ...QUESTIONS[i], order: (i + 1) * 1000 };
+      const key = `q${String(i + 1).padStart(2, "0")}`;
+      await set(ref(db, `questions/${key}`), q);
+      addLog(`✅ Question ${i + 1} — ${q.question.substring(0, 60)}…`, "ok");
+    }
+
+    addLog(`🎉 ${QUESTIONS.length} questions chargées avec succès !`, "done");
+    addLog("Tu peux fermer cette page et retourner dans l'admin.", "ok");
+  } catch (err) {
+    addLog("❌ Erreur : " + err.message, "err");
+    btn.disabled = false;
+  }
+};
+</script>
+</body>
+</html>
