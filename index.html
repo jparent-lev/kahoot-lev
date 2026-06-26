@@ -487,137 +487,157 @@ if (myId && myName) {
     flex: 1; display: flex; flex-direction: column;
     align-items: center; gap: .2rem;
   }
-  .res-bar-count { font-size: .8rem; font-weight: 800; color: var(--text); min-heigh── */
-  .site-header {
-    width: 100%;
-    background: var(--green);
-    color: white;
-    padding: .75rem 1.5rem;
-    font-weight: 700;
-    font-size: 1rem;
-    text-align: center;
-    position: fixed;
-    top: 0; left: 0;
-    z-index: 10;
-  }
-  .view { padding-top: 4.5rem; }
+  .res-bar-count { font-size: .8rem; font-weight: 800; color: var(--text); min-height: 1rem; }
+  .res-bar-inner { width: 100%; border-radius: 6px 6px 0 0; min-height: 4px; transition: height .4s ease; }
+  .res-bar-icon  { font-size: .95rem; }
 
-  /* ── JOIN ── */
-  #v-join { background: linear-gradient(160deg, #2d6a4f 0%, #40916c 50%, #1a1a2e 100%); }
-  #v-join h1 { font-size: 2rem; color: white; margin-bottom: .25rem; }
-  #v-join p  { color: rgba(255,255,255,.7); margin-bottom: 2rem; font-size: 1rem; }
+  .res-divider { width: 100%; border: none; border-top: 1.5px solid var(--border); margin: .25rem 0; }
 
-  .join-card {
-    background: white;
-    border-radius: 20px;
-    padding: 2rem;
-    width: 100%;
-    max-width: 400px;
-    box-shadow: 0 8px 40px rgba(0,0,0,.2);
-  }
-
-  .form-group { display: flex; flex-direction: column; gap: .4rem; margin-bottom: 1.25rem; text-align: left; }
-  label { font-size: .85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
-  input {
-    padding: .8rem 1rem;
-    border: 2px solid var(--border);
-    border-radius: 12px;
-    font-size: 1rem;
-    font-family: inherit;
-    transition: border-color .2s;
-    background: var(--bg);
-  }
-  input:focus { outline: none; border-color: var(--green2); }
-
-  .btn-join {
-    width: 100%;
-    padding: 1rem;
-    background: var(--green2);
-    color: white;
-    border: none;
-    border-radius: 12px;
-    font-size: 1.1rem;
-    font-weight: 800;
-    cursor: pointer;
-    transition: background .2s;
-  }
-  .btn-join:hover { background: var(--green); }
-
-  .prize-hint {
-    margin-top: 1.5rem;
-    font-size: .8rem;
-    color: rgba(255,255,255,.6);
-    max-width: 320px;
-    line-height: 1.5;
-  }
-
-  /* ── WAITING ── */
-  #v-waiting { background: linear-gradient(135deg, var(--bg) 0%, #d8f3dc 100%); gap: 1.5rem; }
-  .waiting-avatar {
-    width: 80px; height: 80px;
-    background: var(--green2);
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 2rem; color: white;
-  }
-  #v-waiting h2 { font-size: 1.6rem; }
-  #v-waiting .sub { color: var(--muted); font-size: 1rem; }
-  .pulse { animation: pulse 1.5s ease-in-out infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-
-  /* ── QUESTION ── */
-  #v-question {
-    background: linear-gradient(160deg, #0f3460 0%, #16213e 100%);
-    color: white;
-    gap: 1.25rem;
-    justify-content: flex-start;
-    padding-top: 5rem;
-  }
-
-  .q-timer-strip { width: 100%; display: flex; align-items: center; gap: .75rem; }
-  #q-timer-bar-wrap-mobile { flex: 1; height: 12px; background: #ffffff22; border-radius: 6px; overflow: hidden; }
-  #q-timer-bar-mobile { height: 100%; border-radius: 6px; transition: width .1s linear; width: 100%; }
-  #q-timer-mobile { font-size: 1.8rem; font-weight: 900; min-width: 2.5rem; text-align: right; }
-
-  #q-q-text { font-size: clamp(1.1rem, 4vw, 1.5rem); font-weight: 800; line-height: 1.35; max-width: 400px; }
-
-  .ans-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; width: 100%; max-width: 400px; }
-
-  .ans-btn {
-    border: none;
-    border-radius: 14px;
-    padding: 1rem;
-    display: flex; flex-direction: column; align-items: center; gap: .4rem;
-    font-family: inherit;
-    font-weight: 700;
+  .res-lb-title { font-size: .85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; align-self: flex-start; }
+  .res-lb-list  { width: 100%; max-width: 400px; }
+  .res-lb-row {
+    display: flex; align-items: center; gap: .6rem;
+    padding: .45rem .75rem; border-radius: 8px;
+    background: #ffffff88; margin-bottom: .3rem;
     font-size: .95rem;
-    color: white;
-    cursor: pointer;
-    text-shadow: 0 1px 3px rgba(0,0,0,.3);
-    box-shadow: 0 4px 16px rgba(0,0,0,.15);
-    transition: transform .1s, opacity .2s;
-    min-height: 90px;
-    word-break: break-word;
   }
-  .ans-btn:active { transform: scale(.96); }
-  .ans-icon { font-size: 1.5rem; flex-shrink: 0; }
-  .ans-img  { width:100%; max-height:80px; object-fit:contain; border-radius:8px; display:none; }
-  .ans-btn.has-img { flex-direction:column; align-items:stretch; }
-  .ans-btn.has-img .ans-icon { font-size:1rem; }
-  .ans-btn.has-img .ans-img  { display:block; }
-  .q-img-mobile { max-width:100%; max-height:22vh; border-radius:10px; object-fit:contain; margin-bottom:.5rem; }
+  .res-lb-row.me { background: var(--green2); color: white; font-weight: 700; }
+  .res-lb-rk { min-width: 1.5rem; font-size: .85rem; color: var(--muted); }
+  .res-lb-row.me .res-lb-rk { color: rgba(255,255,255,.8); }
+  .res-lb-nm { flex: 1; }
+  .res-lb-sc { font-size: .85rem; color: var(--green); font-weight: 700; }
+  .res-lb-row.me .res-lb-sc { color: var(--gold); }
 
-  /* ── ANSWERED ── */
-  #v-answered { background: linear-gradient(160deg, #0f3460 0%, #16213e 100%); color: white; gap: 1rem; }
-  #ans-feedback { font-size: 2rem; font-weight: 800; }
-  #ans-points   { font-size: 1.5rem; font-weight: 700; }
-  .ans-waiting  { color: #aaa; font-size: 1rem; }
-  .ans-waiting-dot { animation: pulse 1.2s infinite; display: inline-block; }
+  /* ── LEADERBOARD & FINISHED ── */
+  #v-leaderboard, #v-finished { background: linear-gradient(160deg, #1a1a2e 0%, #2d6a4f55 100%); color: white; gap: 1rem; }
 
-  /* ── RESULTS ── */
-  #v-results { background: linear-gradient(135deg, var(--bg) 0%, #d8f3dc 100%); gap: .75rem; justify-content: flex-start; padding-top: 5rem; }
-  #res-feedback    { font-size: 2rem; font-weight: 800; }
-  #res-correct-ans { font-size: 1rem; color: var(--green); font-weight: 600; }
-  #res-pts-earned  { font-size: 1.6rem; font-weight: 800; color: var(--green2); }
-  #res-total-score { font-size: 1rem; color: var(--muted); }
-T�E2�gFW"VW7F�������F�b�C�'b�&W7V�G2"6�73�'f�Wr#��F�b�C�'&W2�fVVF&6�#���F�c��F�b�C�'&W2�6�'&V7B��2#���F�c��F�b�C�'&W2�G2�V&�VB#���F�c��F�b�C�'&W2�F�F��66�&R#���F�c��F�b6�73�'&W2�6�'B"�C�'&W2�6�'B#���F�c�Ƈ"6�73�'&W2�F�f�FW"#��F�b6�73�'&W2��"�F�F�R#�	��b6�76V�V�C��F�c��F�b6�73�'&W2��"�Ɨ7B"�C�'&W2��"�Ɨ7B#���F�c���F�cࠣ����TDU$$�$B���FW&�:�F��&R�����F�b�C�'b��VFW&&�&B"6�73�'f�Wr#��F�b6�73�&ג�&��6&B#��F�b6�73�&ג�&���V�"�C�&�"�&�#�(	C��F�c��F�b6�73�&ג�&����R"�C�&�"���R#�(	C��F�c��F�b6�73�&ג�&��66�&R"�C�&�"�66�&R#�(	C��F�c��F�b6�73�&ג�&��7V""�C�&�"�7V"#���F�c���F�c���C�'��W"���R"7G��S�&F�7������R#�����F�b6�73�&�"�Ɨ7B���&��R"�C�&�"�Ɨ7B#���F�c���F�cࠣ���d��4�TB����F�b�C�'b�f��6�VB"6�73�'f�Wr#��F�b7G��S�&f��B�6��S�7&V�#�	����F�c��F�b6�73�&ג�&��6&B#��F�b6�73�&ג�&���V�"�C�&f���&�#�(	C��F�c��F�b6�73�&ג�&����R"�C�&f�����R#�(	C��F�c��F�b6�73�&ג�&��66�&R"�C�&f���66�&R#�(	C��F�c��F�b6�73�&ג�&��7V""�C�&f���7V"#���F�c���F�c��F�b6�73�&�"�Ɨ7B���&��R"�C�&f���Ɨ7B#���F�c��7G��S�&f��B�6��S��W&VӶ6���#�6��&v���F���W&V�#�Ɩ�����RV�g&2+rƖ�����VV�g&2�6�������F�cࠣ���4��4TB����F�b�C�'b�6��6VB"6�73�'f�Wr#�ƃ#��RV��W7BfW&�:�����#����W&6�Bvf��"'F�6�:������F�cࠣ��&�G�����F���
+  .my-rank-card {
+    background: var(--green);
+    border-radius: 16px;
+    padding: 1.25rem 2rem;
+    text-align: center;
+  }
+  .my-rank-num  { font-size: 2.5rem; font-weight: 900; color: var(--gold); }
+  .my-rank-name { font-size: 1.2rem; font-weight: 700; }
+  .my-rank-score{ font-size: 1rem; color: rgba(255,255,255,.7); }
+  .my-rank-sub  { font-size: .9rem; margin-top: .5rem; color: var(--gold); font-weight: 600; }
+
+  .lb-list-mobile { width: 100%; max-width: 400px; }
+  .lb-row { display: flex; gap: .75rem; padding: .5rem .75rem; border-radius: 8px; background: #ffffff10; margin-bottom: .3rem; align-items: center; }
+  .lb-row.me { background: var(--green); font-weight: 700; }
+  .lb-rk { font-size: .9rem; color: #aaa; min-width: 1.5rem; }
+  .lb-nm { flex: 1; font-size: 1rem; }
+  .lb-sc { font-size: .9rem; color: var(--gold); }
+
+  /* ── CLOSED ── */
+  #v-closed { background: var(--bg); }
+  #v-closed h2 { font-size: 1.5rem; margin-bottom: .5rem; }
+  #v-closed p  { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="site-header">🎬 Quiz — En place mon Loup</div>
+
+<!-- JOIN -->
+<div id="v-join" class="view" style="display:flex">
+  <h1>Participe au quiz!</h1>
+  <p>Cinéma en plein air · Place Limouloise</p>
+  <div class="join-card">
+    <form id="join-form">
+      <div class="form-group">
+        <label>Ton prénom et nom</label>
+        <input type="text" id="inp-name" placeholder="Marie Tremblay" required autocomplete="name">
+      </div>
+      <div class="form-group">
+        <label>Ton courriel</label>
+        <input type="email" id="inp-email" placeholder="marie@exemple.com" required autocomplete="email">
+      </div>
+      <button type="submit" class="btn-join">Je participe! →</button>
+    </form>
+  </div>
+  <p class="prize-hint">
+    🏅 1re place : Hoodie Limoilou en vrac<br>
+    🥈 2e place : T-shirt Limoilou en vrac<br>
+    🥉 3e place : Gourde Limoilou en vrac<br>
+    <br>
+    Tes coordonnées servent uniquement au tirage.
+  </p>
+</div>
+
+<!-- WAITING -->
+<div id="v-waiting" class="view">
+  <div class="waiting-avatar">😎</div>
+  <h2>Bienvenue, <span id="player-name-waiting">—</span>!</h2>
+  <p class="sub"><span id="waiting-count">0</span> joueur(s) connecté(s)</p>
+  <p class="sub pulse">⏳ Le quiz commence bientôt…</p>
+</div>
+
+<!-- QUESTION -->
+<div id="v-question" class="view">
+  <div class="q-timer-strip">
+    <div id="q-timer-bar-wrap-mobile"><div id="q-timer-bar-mobile"></div></div>
+    <div id="q-timer-mobile">30</div>
+  </div>
+  <div id="q-img-wrap" style="display:none"><img id="q-img" src="" alt="" class="q-img-mobile"></div>
+  <div id="q-q-text">Chargement…</div>
+  <div class="ans-grid">
+    <button class="ans-btn"><span class="ans-icon"></span><img class="ans-img" src="" alt="" style="display:none"><span class="ans-text"></span></button>
+    <button class="ans-btn"><span class="ans-icon"></span><img class="ans-img" src="" alt="" style="display:none"><span class="ans-text"></span></button>
+    <button class="ans-btn"><span class="ans-icon"></span><img class="ans-img" src="" alt="" style="display:none"><span class="ans-text"></span></button>
+    <button class="ans-btn"><span class="ans-icon"></span><img class="ans-img" src="" alt="" style="display:none"><span class="ans-text"></span></button>
+  </div>
+</div>
+
+<!-- ANSWERED (waiting for results) -->
+<div id="v-answered" class="view">
+  <div id="ans-feedback">⏳ Réponse enregistrée</div>
+  <div id="ans-points"></div>
+  <p class="ans-waiting">En attente des résultats <span class="ans-waiting-dot">…</span></p>
+</div>
+
+<!-- RESULTS (after question) -->
+<div id="v-results" class="view">
+  <div id="res-feedback"></div>
+  <div id="res-correct-ans"></div>
+  <div id="res-pts-earned"></div>
+  <div id="res-total-score"></div>
+  <div class="res-chart" id="res-chart"></div>
+  <hr class="res-divider">
+  <div class="res-lb-title">🏆 Classement</div>
+  <div class="res-lb-list" id="res-lb-list"></div>
+</div>
+
+<!-- LEADERBOARD (intermédiaire) -->
+<div id="v-leaderboard" class="view">
+  <div class="my-rank-card">
+    <div class="my-rank-num" id="lb-rank">—</div>
+    <div class="my-rank-name" id="lb-name">—</div>
+    <div class="my-rank-score" id="lb-score">—</div>
+    <div class="my-rank-sub" id="lb-sub"></div>
+  </div>
+  <p id="player-name" style="display:none"></p>
+  <div class="lb-list-mobile" id="lb-list"></div>
+</div>
+
+<!-- FINISHED -->
+<div id="v-finished" class="view">
+  <div style="font-size:3rem">🎉</div>
+  <div class="my-rank-card">
+    <div class="my-rank-num" id="fin-rank">—</div>
+    <div class="my-rank-name" id="fin-name">—</div>
+    <div class="my-rank-score" id="fin-score">—</div>
+    <div class="my-rank-sub" id="fin-sub"></div>
+  </div>
+  <div class="lb-list-mobile" id="fin-list"></div>
+  <p style="font-size:.85rem;color:#aaa;margin-top:.5rem">Limoilou en vrac · limoilouenvrac.com</p>
+</div>
+
+<!-- CLOSED -->
+<div id="v-closed" class="view">
+  <h2>Le quiz est fermé.</h2>
+  <p>Merci d'avoir participé!</p>
+</div>
+
+</body>
+</html>
