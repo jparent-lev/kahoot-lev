@@ -261,6 +261,7 @@ function showResults() {
       <div class="res-bar-count">${v}</div>
       <div class="res-bar-inner" style="height:${Math.round(v / maxVotes * 72)}px;background:${chartColors[i]};${i === q.correct ? 'outline:3px solid #fff;outline-offset:2px;' : 'opacity:.85'}"></div>
       <div class="res-bar-icon">${chartIcons[i]}</div>
+      <div class="res-bar-label">${q.options[i]}</div>
     </div>
   `).join("");
 }
@@ -480,20 +481,21 @@ if (myId && myName) {
   /* ── ANSWER CHART ── */
   .res-chart {
     display: flex; gap: .5rem; align-items: flex-end;
-    width: 100%; max-width: 320px; height: 100px;
-    padding: 0 .25rem;
+    width: 100%; max-width: 360px; height: 120px;
+    padding: 0 .25rem; margin-top: 1rem;
   }
   .res-bar-col {
     flex: 1; display: flex; flex-direction: column;
-    align-items: center; gap: .2rem;
+    align-items: center; gap: .15rem;
   }
   .res-bar-count { font-size: .8rem; font-weight: 800; color: var(--text); min-height: 1rem; }
   .res-bar-inner { width: 100%; border-radius: 6px 6px 0 0; min-height: 4px; transition: height .4s ease; }
-  .res-bar-icon  { font-size: .95rem; }
+  .res-bar-icon  { font-size: .9rem; }
+  .res-bar-label { font-size: .6rem; color: var(--muted); text-align: center; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.2; }
 
   .res-divider { width: 100%; border: none; border-top: 1.5px solid var(--border); margin: .25rem 0; }
 
-  .res-lb-title { font-size: .85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; align-self: flex-start; }
+  .res-lb-title { font-size: .85rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; text-align: center; width: 100%; max-width: 400px; }
   .res-lb-list  { width: 100%; max-width: 400px; }
   .res-lb-row {
     display: flex; align-items: center; gap: .6rem;
