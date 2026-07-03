@@ -496,6 +496,13 @@ if (isAuthenticated()) initApp();
   #login-error { color:var(--red); font-size:.9rem; margin-top:.75rem; display:none; }
 
   /* Logout button in header */
+  .btn-display {
+    padding:.35rem .85rem; background:rgba(255,255,255,.15);
+    border:1.5px solid rgba(255,255,255,.4); color:white; border-radius:8px;
+    font-size:.85rem; font-weight:700; text-decoration:none; transition:background .15s;
+    display:inline-flex; align-items:center;
+  }
+  .btn-display:hover { background:rgba(255,255,255,.28); }
   .btn-logout {
     margin-left:auto; padding:.35rem .85rem; background:rgba(255,255,255,.15);
     border:1.5px solid rgba(255,255,255,.4); color:white; border-radius:8px;
@@ -526,6 +533,7 @@ if (isAuthenticated()) initApp();
 <header>
   <h1>🎬 Quiz En place mon Loup</h1>
   <span class="badge">ADMIN</span>
+  <a href="display.html" target="_blank" rel="noopener" class="btn-display">🖥 Grand écran</a>
   <button class="btn-logout" onclick="logout()">Déconnexion</button>
 </header>
 
