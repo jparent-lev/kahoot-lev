@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grand écran — Quiz En place mon Loup</title>
+<script src="firebase-config.js"></script>
+<script type="module">
+import { initializeApp }              from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const app = initializeApp(FIREBASE_CONFIG);
+const db  = getDatabase(app);
+
+let session = {}, questions = {}, participants = {};
+let timerInterval = null;
+
+const ALL_VIEWS = ["idle","waiting","question","results","leaderboard","finished"];
+
+function show(v) {
+  ALL_VIEWS.forEach(id => {
+    const el = document.getElementById("v-" + id);
+    if (el) el.style.display = id === v ? "flex" : "none";
+  });
+}
+
+onValue(ref(db, "questions"),    snap => { questions    = snap.val() || {}; });
+onValue(ref(db, "participants"), snap => { participants = snap.val() || {}; onParticipants(); });
+onValue(ref(db, "session"),      snap => { session      = snap.val() || {}; syncState(); });
+
+function onParticipants() {
+  // Waiting count
+  const wc = document.getElementById("d-waiting-count");
+  if (wc) wc.textContent = Object.keys(participants).length;
+
+  // Live answer counter during question
+  if (session.status === "question" && session.currentQuestion) {
+    const answered = Object.values(participants)
+      .filter(p => p.answers?.[session.currentQuestion] !== undefined).length;
+    const ansEl = document.getElementById("d-answer-count");
+    const totEl = document.getElementById("d-answer-total");
+    if (ansEl) ansEl.textContent = answered;
+    if (totEl) totEl.textContent = Object.keys(participants).length;
+  }
+}
+
+function syncState() {
+  clearInterval(timerInterval);
+  const s = session.status;
+  if (!s || s === "idle")   { show("idle");              return; }
+  if (s === "waiting")      { show("waiting"); onParticipants(); return; }
+  if (s === "question")     { showQuestion();             return; }
+  if (s === "results")      { showResults();              return; }
+  if (s === "leaderboard")  { showLeaderboard(false);     return; }
+  if (s === "finished")     { showLeaderboard(true);      return; }
+}
+
+function getQInfo(qid) {
+  const sorted = Object.entries(questions).sort(([,a],[,b]) => a.order - b.order);
+  return { num: sorted.findIndex(([id]) => id === qid) + 1, total: sorted.length };
+}
+
+// ── Question ──────────────────────────────────────────────────────────────
+function showQuestion() {
+  const q = questions[session.currentQuestion];
+  if (!q) return;
+  show("question");
+
+  const { num, total } = getQInfo(session.currentQuestion);
+  document.getElementById("d-q-num").textContent  = `Question ${num} / ${total}`;
+  document.getElementById("d-q-text").textContent = q.question;
+
+  const qImgEl = document.getElementById("d-q-img");
+  if (q.questionImage) { qImgEl.src = q.questionImage; qImgEl.style.display = "block"; }
+  else                   qImgEl.style.display = "none";
+
+  const colors = ["#e63946","#457b9d","#e9c46a","#2d6a4f"];
+  const icons  = ["🔺","🔷","🟡","🟢"];
+  document.querySelectorAll(".d-ans-card").forEach((card, i) => {
+    card.style.background = colors[i];
+    card.querySelector(".d-ans-icon").textContent = icons[i];
+    card.querySelector(".d-ans-text").textContent = q.options[i];
+    const imgEl = card.querySelector(".d-ans-img");
+    if (q.optionImages?.[i]) { imgEl.src = q.optionImages[i]; imgEl.style.display = "block"; }
+    else imgEl.style.display = "none";
+  });
+
+  // Timer
+  const timerEl  = document.getElementById("d-timer-num");
+  const timerBar = document.getElementById("d-timer-bar");
+  const elapsed  = (Date.now() - session.questionStartedAt) / 1000;
+  let remaining  = Math.max(0, q.timer - elapsed);
+
+  function tick() {
+    const r = Math.max(0, remaining);
+    timerEl.textContent = Math.ceil(r);
+    timerBar.style.width = (r / q.timer * 100) + "%";
+    timerBar.style.background = r > q.timer * 0.4 ? "#40916c" : r > q.timer * 0.2 ? "#e9c46a" : "#e63946";
+    if (r <= 0) clearInterval(timerInterval);
+    remaining -= 0.1;
+  }
+  tick();
+  timerInterval = setInterval(tick, 100);
+  onParticipants();
+}
+
+// ── Results ───────────────────────────────────────────────────────────────
+function showResults() {
+  show("results");
+  clearInterval(timerInterval);
+  const q = questions[session.currentQuestion];
+  if (!q) return;
+
+  const { num, total } = getQInfo(session.currentQuestion);
+  document.getElementById("d-res-qnum").textContent    = `Question ${num} / ${total}`;
+  document.getElementById("d-res-q-text").textContent  = q.question;
+  document.getElementById("d-res-correct").textContent = `✅ ${q.options[q.correct]}`;
+
+  const votes = [0,0,0,0];
+  Object.values(participants).forEach(p => {
+    const ans = p.answers?.[session.currentQuestion]?.answer;
+    if (ans !== undefined && ans >= 0 && ans <= 3) votes[ans]++;
+  });
+  const maxVotes   = Math.max(...votes, 1);
+  const totalVotes = votes.reduce((a,b) => a + b, 0);
+  const chartColors = ["#e63946","#457b9d","#e9c46a","#2d6a4f"];
+  const chartIcons  = ["🔺","🔷","🟡","🟢"];
+
+  document.getElementById("d-res-chart").innerHTML = votes.map((v, i) => `
+    <div class="d-bar-col">
+      <div class="d-bar-count">${v}</div>
+      <div class="d-bar-pct">${totalVotes > 0 ? Math.round(v / totalVotes * 100) : 0}%</div>
+      <div class="d-bar-inner${i === q.correct ? ' is-correct' : ''}"
+           data-h="${Math.round(v / maxVotes * 38)}"
+           style="height:0;background:${chartColors[i]}${i !== q.correct ? ';opacity:.72' : ''}"></div>
+      <div class="d-bar-icon">${chartIcons[i]}</div>
+      <div class="d-bar-label">${q.options[i]}</div>
+    </div>`).join("");
+
+  // Animate bars in
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    document.querySelectorAll(".d-bar-inner").forEach(el => {
+      el.style.height = el.dataset.h + "vh";
+    });
+  }));
+}
+
+// ── Leaderboard ───────────────────────────────────────────────────────────
+function showLeaderboard(final) {
+  show(final ? "finished" : "leaderboard");
+  clearInterval(timerInterval);
+
+  const sorted = Object.entries(participants)
+    .sort(([,a],[,b]) => (b.score||0) - (a.score||0))
+    .slice(0, 10);
+  const medals = ["🥇","🥈","🥉"];
+  const listId = final ? "d-fin-list" : "d-lb-list";
+
+  document.getElementById(listId).innerHTML = sorted.map(([,p], i) => `
+    <div class="d-lb-row${i < 3 ? ' top-' + i : ''}">
+      <span class="d-lb-medal">${medals[i] || (i + 1)}</span>
+      <span class="d-lb-name">${p.name}</span>
+      <span class="d-lb-score">${p.score || 0} pts</span>
+    </div>`).join("");
+}
+</script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --green:  #2d6a4f;
+  --green2: #40916c;
+  --gold:   #e9c46a;
+  --red:    #e63946;
+}
+
+html, body { width: 100%; height: 100%; overflow: hidden; background: #0f1923; }
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: white; }
+
+.view {
+  position: fixed; inset: 0; display: none;
+  flex-direction: column; align-items: center; justify-content: center;
+  padding: 2rem 3rem;
+}
+
+/* ── IDLE ─────────────────────────────────────────────────────────────── */
+#v-idle {
+  background: linear-gradient(160deg, #1a1a2e 0%, #2d6a4f 100%);
+  gap: 1.2rem; text-align: center;
+}
+#v-idle .brand-icon { font-size: clamp(3rem, 6vw, 7rem); }
+#v-idle h1 { font-size: clamp(2rem, 5vw, 5.5rem); font-weight: 900; }
+#v-idle p  { font-size: clamp(.9rem, 2.5vw, 2.5rem); color: rgba(255,255,255,.55); }
+
+/* ── WAITING ──────────────────────────────────────────────────────────── */
+#v-waiting {
+  background: linear-gradient(160deg, #1a1a2e 0%, #2d6a4f 100%);
+  gap: 1.5rem; text-align: center;
+}
+#v-waiting .brand-icon { font-size: clamp(3rem, 6vw, 7rem); }
+#v-waiting h1 { font-size: clamp(2rem, 5vw, 5.5rem); font-weight: 900; }
+
+.waiting-url {
+  font-size: clamp(1.2rem, 3vw, 3rem); font-weight: 800; color: var(--gold);
+  background: rgba(255,255,255,.12); padding: .6rem 2.5rem; border-radius: 14px;
+  letter-spacing: .04em;
+}
+.waiting-count-wrap { display: flex; align-items: baseline; gap: 1rem; }
+.waiting-count-num  { font-size: clamp(3rem, 8vw, 8rem); font-weight: 900; color: var(--gold); line-height: 1; }
+.waiting-count-lbl  { font-size: clamp(1rem, 2.5vw, 2.5rem); color: rgba(255,255,255,.55); }
+.waiting-pulse { font-size: clamp(.9rem, 1.8vw, 2rem); color: rgba(255,255,255,.45); }
+.pulse { animation: pulse 1.5s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+/* ── QUESTION ─────────────────────────────────────────────────────────── */
+#v-question {
+  background: linear-gradient(160deg, #0f3460 0%, #16213e 100%);
+  justify-content: flex-start; align-items: stretch;
+  padding: 1.5rem 2.5rem; gap: .8rem;
+}
+
+.d-timer-strip { display: flex; align-items: center; gap: 1rem; }
+.d-timer-bar-wrap { flex: 1; height: 18px; background: rgba(255,255,255,.15); border-radius: 9px; overflow: hidden; }
+#d-timer-bar { height: 100%; width: 100%; border-radius: 9px; transition: width .1s linear, background .3s; }
+#d-timer-num { font-size: clamp(2.5rem, 5vw, 5.5rem); font-weight: 900; min-width: 3.5rem; text-align: right; line-height: 1; }
+
+.d-q-meta { display: flex; justify-content: space-between; align-items: center; }
+#d-q-num { font-size: clamp(.9rem, 1.8vw, 1.8rem); color: rgba(255,255,255,.55); font-weight: 600; }
+.d-answer-badge {
+  font-size: clamp(.9rem, 1.8vw, 1.8rem); color: var(--gold); font-weight: 700;
+  background: rgba(255,255,255,.1); padding: .25rem 1rem; border-radius: 20px;
+}
+
+#d-q-img { max-height: 18vh; max-width: 55%; object-fit: contain; border-radius: 12px; display: none; align-self: center; }
+
+#d-q-text {
+  font-size: clamp(1.6rem, 3.5vw, 4.2rem); font-weight: 800; line-height: 1.2;
+  text-align: center; align-self: center; max-width: 1300px;
+}
+
+.d-ans-grid {
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  gap: 1rem; flex: 1; min-height: 180px;
+}
+.d-ans-card {
+  border-radius: 18px; padding: 1.25rem 1.75rem;
+  display: flex; align-items: center; gap: 1.25rem;
+  box-shadow: 0 6px 28px rgba(0,0,0,.28);
+  font-weight: 700; color: white; text-shadow: 0 1px 4px rgba(0,0,0,.3);
+}
+.d-ans-icon { font-size: clamp(1.5rem, 3vw, 3.5rem); flex-shrink: 0; }
+.d-ans-text { flex: 1; font-size: clamp(1.1rem, 2.5vw, 2.8rem); line-height: 1.25; }
+.d-ans-img  { max-height: clamp(60px, 10vh, 120px); border-radius: 8px; object-fit: contain; display: none; }
+
+/* ── RESULTS ──────────────────────────────────────────────────────────── */
+#v-results {
+  background: linear-gradient(160deg, #1a1a2e 0%, #2d6a4f55 100%);
+  justify-content: flex-start; align-items: center;
+  padding: 1.5rem 3rem; gap: .8rem;
+}
+
+#d-res-qnum    { font-size: clamp(.8rem, 1.4vw, 1.4rem); color: rgba(255,255,255,.45); font-weight: 600; align-self: flex-start; }
+#d-res-q-text  { font-size: clamp(1.2rem, 2.5vw, 2.8rem); font-weight: 700; text-align: center; color: rgba(255,255,255,.85); max-width: 1100px; line-height: 1.3; }
+#d-res-correct { font-size: clamp(1.5rem, 3.2vw, 4rem); font-weight: 900; color: #52b788; text-align: center; }
+
+.d-res-chart { display: flex; align-items: flex-end; gap: 2rem; width: 100%; max-width: 1400px; flex: 1; padding: 0 2rem; min-height: 0; }
+
+.d-bar-col   { flex: 1; display: flex; flex-direction: column; align-items: center; gap: .4rem; }
+.d-bar-count { font-size: clamp(1.2rem, 2.5vw, 3rem); font-weight: 900; }
+.d-bar-pct   { font-size: clamp(.85rem, 1.6vw, 2rem); color: rgba(255,255,255,.55); font-weight: 600; }
+.d-bar-inner {
+  width: 90%; border-radius: 12px 12px 0 0; min-height: 6px;
+  transition: height .7s cubic-bezier(.22,.61,.36,1);
+}
+.d-bar-inner.is-correct {
+  outline: 5px solid white; outline-offset: 3px;
+  animation: bar-glow .9s ease-in-out infinite alternate;
+}
+@keyframes bar-glow {
+  from { box-shadow: 0 0 10px rgba(255,255,255,.3); }
+  to   { box-shadow: 0 0 45px rgba(255,255,255,.75), 0 0 90px rgba(255,255,255,.2); }
+}
+.d-bar-icon  { font-size: clamp(1.2rem, 2.5vw, 3rem); }
+.d-bar-label {
+  font-size: clamp(.75rem, 1.3vw, 1.5rem); color: rgba(255,255,255,.65);
+  text-align: center; max-width: 100%; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* ── LEADERBOARD / FINISHED ───────────────────────────────────────────── */
+#v-leaderboard, #v-finished {
+  background: linear-gradient(160deg, #1a1a2e 0%, #2d6a4f 100%);
+  gap: 1.1rem;
+}
+.lb-title { font-size: clamp(2rem, 5vw, 5.5rem); font-weight: 900; text-align: center; }
+.d-lb-list { width: 100%; max-width: 950px; display: flex; flex-direction: column; gap: .7rem; }
+.d-lb-row {
+  display: flex; align-items: center; gap: 1.5rem;
+  padding: .9rem 2rem; border-radius: 14px;
+  background: rgba(255,255,255,.08);
+  font-size: clamp(1.1rem, 2.5vw, 2.6rem); font-weight: 700;
+}
+.d-lb-row.top-0 { background: rgba(255,215,0,.13); border: 2px solid #ffd700; }
+.d-lb-row.top-1 { background: rgba(192,192,192,.1); border: 2px solid #c0c0c0; }
+.d-lb-row.top-2 { background: rgba(205,127,50,.1);  border: 2px solid #cd7f32; }
+.d-lb-medal { font-size: clamp(1.3rem, 2.8vw, 3rem); min-width: 3.5rem; text-align: center; }
+.d-lb-name  { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-lb-score { color: var(--gold); font-weight: 800; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<!-- IDLE (affiché par défaut avant connexion Firebase) -->
+<div id="v-idle" class="view" style="display:flex">
+  <div class="brand-icon">🎬</div>
+  <h1>Quiz — En place mon Loup</h1>
+  <p>Cinéma en plein air · Place Limouloise</p>
+</div>
+
+<!-- WAITING -->
+<div id="v-waiting" class="view">
+  <div class="brand-icon">🎬</div>
+  <h1>Quiz — En place mon Loup</h1>
+  <p class="waiting-url">👉 kahoot-lev.netlify.app</p>
+  <div class="waiting-count-wrap">
+    <span class="waiting-count-num" id="d-waiting-count">0</span>
+    <span class="waiting-count-lbl">participants connectés</span>
+  </div>
+  <p class="waiting-pulse pulse">⏳ Le quiz commence bientôt…</p>
+</div>
+
+<!-- QUESTION -->
+<div id="v-question" class="view">
+  <div class="d-timer-strip">
+    <div class="d-timer-bar-wrap"><div id="d-timer-bar"></div></div>
+    <div id="d-timer-num">30</div>
+  </div>
+  <div class="d-q-meta">
+    <span id="d-q-num">Question 1/5</span>
+    <span class="d-answer-badge">
+      <span id="d-answer-count">0</span> / <span id="d-answer-total">0</span> ont répondu
+    </span>
+  </div>
+  <img id="d-q-img" src="" alt="">
+  <div id="d-q-text">Chargement…</div>
+  <div class="d-ans-grid">
+    <div class="d-ans-card"><span class="d-ans-icon"></span><img class="d-ans-img" src="" alt=""><span class="d-ans-text"></span></div>
+    <div class="d-ans-card"><span class="d-ans-icon"></span><img class="d-ans-img" src="" alt=""><span class="d-ans-text"></span></div>
+    <div class="d-ans-card"><span class="d-ans-icon"></span><img class="d-ans-img" src="" alt=""><span class="d-ans-text"></span></div>
+    <div class="d-ans-card"><span class="d-ans-icon"></span><img class="d-ans-img" src="" alt=""><span class="d-ans-text"></span></div>
+  </div>
+</div>
+
+<!-- RESULTS -->
+<div id="v-results" class="view">
+  <span id="d-res-qnum"></span>
+  <div id="d-res-q-text"></div>
+  <div id="d-res-correct"></div>
+  <div id="d-res-chart" class="d-res-chart"></div>
+</div>
+
+<!-- LEADERBOARD (intermédiaire) -->
+<div id="v-leaderboard" class="view">
+  <div class="lb-title">🏆 Classement</div>
+  <div class="d-lb-list" id="d-lb-list"></div>
+</div>
+
+<!-- FINISHED -->
+<div id="v-finished" class="view">
+  <div class="lb-title">🏆 Classement final</div>
+  <div class="d-lb-list" id="d-fin-list"></div>
+</div>
+
+</body>
+</html>
