@@ -104,7 +104,7 @@ function showQuestion() {
   onParticipants();
 }
 
-// ── Results ───────────────────────────────────────────────────────────────
+// ── Results ──────────────────────────────────────────────────────────────
 function showResults() {
   show("results");
   clearInterval(timerInterval);
@@ -134,7 +134,7 @@ function showResults() {
            data-h="${Math.round(v / maxVotes * 38)}"
            style="height:0;background:${chartColors[i]}${i !== q.correct ? ';opacity:.72' : ''}"></div>
       <div class="d-bar-icon">${chartIcons[i]}</div>
-      <div class="d-bar-label">${q.options[i]}</div>
+       <div class="d-bar-label">${q.options[i]}</div>
     </div>`).join("");
 
   // Animate bars in
@@ -166,7 +166,6 @@ function showLeaderboard(final) {
 </script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
 :root {
   --green:  #2d6a4f;
   --green2: #40916c;
@@ -199,6 +198,25 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: whi
 }
 #v-waiting .brand-icon { font-size: clamp(3rem, 6vw, 7rem); }
 #v-waiting h1 { font-size: clamp(2rem, 5vw, 5.5rem); font-weight: 900; }
+
+/* ── SPONSORS ─────────────────────────────────────────────────────────── */
+.sponsor-strip {
+  display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: clamp(1rem, 3vw, 3rem);
+  margin-top: clamp(.5rem, 2vw, 2rem);
+  padding: clamp(.6rem, 1.5vw, 1.5rem) clamp(1rem, 3vw, 3rem);
+  background: rgba(255,255,255,.08); border-radius: 20px;
+  border: 1px solid rgba(255,255,255,.15);
+}
+.sponsor-strip p {
+  width: 100%; font-size: clamp(.7rem, 1.5vw, 1.4rem);
+  color: rgba(255,255,255,.45); letter-spacing: .12em; text-transform: uppercase;
+  margin: 0;
+}
+.sponsor-strip img {
+  max-height: clamp(60px, 10vw, 140px); max-width: clamp(200px, 50vw, 700px);
+  width: 100%; object-fit: contain; border-radius: 10px;
+}
 
 .waiting-url {
   font-size: clamp(1.2rem, 3vw, 3rem); font-weight: 800; color: var(--gold);
@@ -315,6 +333,10 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: whi
   <div class="brand-icon">🎬</div>
   <h1>Quiz — En place mon Loup</h1>
   <p>Cinéma en plein air · Place Limouloise</p>
+  <div class="sponsor-strip">
+    <p>Merci à nos partenaires</p>
+    <img src="https://firebasestorage.googleapis.com/v0/b/limoilou-quiz.firebasestorage.app/o/questions%2Fq01%2Fquestion?alt=media&token=94b8e331-e6c8-4905-ae95-04839be45fb6" alt="Partenaire">
+  </div>
 </div>
 
 <!-- WAITING -->
@@ -327,6 +349,10 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: whi
     <span class="waiting-count-lbl">participants connectés</span>
   </div>
   <p class="waiting-pulse pulse">⏳ Le quiz commence bientôt…</p>
+  <div class="sponsor-strip">
+    <p>Merci à nos partenaires</p>
+    <img src="https://firebasestorage.googleapis.com/v0/b/limoilou-quiz.firebasestorage.app/o/questions%2Fq01%2Fquestion?alt=media&token=94b8e331-e6c8-4905-ae95-04839be45fb6" alt="Partenaire">
+  </div>
 </div>
 
 <!-- QUESTION -->
