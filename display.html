@@ -104,7 +104,7 @@ function showQuestion() {
   onParticipants();
 }
 
-// ── Results ──────────────────────────────────────────────────────────────
+// ── Results ───────────────────────────────────────────────────────────────
 function showResults() {
   show("results");
   clearInterval(timerInterval);
@@ -134,7 +134,7 @@ function showResults() {
            data-h="${Math.round(v / maxVotes * 38)}"
            style="height:0;background:${chartColors[i]}${i !== q.correct ? ';opacity:.72' : ''}"></div>
       <div class="d-bar-icon">${chartIcons[i]}</div>
-       <div class="d-bar-label">${q.options[i]}</div>
+      <div class="d-bar-label">${q.options[i]}</div>
     </div>`).join("");
 
   // Animate bars in
@@ -166,6 +166,7 @@ function showLeaderboard(final) {
 </script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
 :root {
   --green:  #2d6a4f;
   --green2: #40916c;
@@ -216,6 +217,10 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: whi
 .sponsor-strip img {
   max-height: clamp(60px, 10vw, 140px); max-width: clamp(200px, 50vw, 700px);
   width: 100%; object-fit: contain; border-radius: 10px;
+}
+.sponsor-strip canvas {
+  max-height: clamp(80px, 12vw, 170px); max-width: 90%;
+  width: auto; height: auto; display: block;
 }
 
 .waiting-url {
@@ -397,5 +402,60 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: whi
   <div class="d-lb-list" id="d-fin-list"></div>
 </div>
 
+
+<script>
+// ── Traitement des logos partenaires ──────────────────────────────────────
+// Charge l'image composite, retire le fond rouge via canvas (pixel-level),
+// et affiche seulement les logos blancs sur le fond sombre de la page.
+(function () {
+  var SRC = 'https://firebasestorage.googleapis.com/v0/b/limoilou-quiz.firebasestorage.app/o/questions%2Fq01%2Fquestion?alt=media&token=94b8e331-e6c8-4905-ae95-04839be45fb6';
+
+  function processLogo(imgEl) {
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    img.onload = function () {
+      var scale = 0.5;
+      var c = document.createElement('canvas');
+      c.width  = Math.round(img.width  * scale);
+      c.height = Math.round(img.height * scale);
+      var ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+
+      var px;
+      try { px = ctx.getImageData(0, 0, c.width, c.height); }
+      catch (e) { cssFallback(imgEl); return; }
+
+      var d = px.data;
+      for (var i = 0; i < d.length; i += 4) {
+        // Garde uniquement les pixels blancs/clairs (les logos)
+        if (!(d[i] > 180 && d[i+1] > 180 && d[i+2] > 180)) d[i+3] = 0;
+      }
+      ctx.putImageData(px, 0, 0);
+
+      // Recadre sur la zone du cadre rouge (logos uniquement)
+      var cx = Math.round(c.width  * 0.04);
+      var cy = Math.round(c.height * 0.26);
+      var cw = Math.round(c.width  * 0.92);
+      var ch = Math.round(c.height * 0.67);
+      var out = document.createElement('canvas');
+      out.width = cw; out.height = ch;
+      out.getContext('2d').drawImage(c, cx, cy, cw, ch, 0, 0, cw, ch);
+      imgEl.replaceWith(out);
+    };
+
+    img.onerror = function () { cssFallback(imgEl); };
+
+    // CORS non configuré → fallback CSS
+    function cssFallback(el) { el.style.mixBlendMode = 'screen'; }
+
+    img.src = SRC;
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.sponsor-strip img').forEach(processLogo);
+  });
+})();
+</script>
 </body>
 </html>
