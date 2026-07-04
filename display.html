@@ -32,7 +32,8 @@ function onParticipants() {
   // Waiting count
   const wc = document.getElementById("d-waiting-count");
   if (wc) wc.textContent = Object.keys(participants).length;
-  /// Live answer counter during question
+
+  // Live answer counter during question
   if (session.status === "question" && session.currentQuestion) {
     const answered = Object.values(participants)
       .filter(p => p.answers?.[session.currentQuestion] !== undefined).length;
@@ -213,9 +214,9 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: whi
   color: rgba(255,255,255,.45); letter-spacing: .12em; text-transform: uppercase;
   margin: 0;
 }
-.sponsor-strip img {
-  max-height: clamp(80px, 12vw, 170px); max-width: 90%;
-  width: auto; height: auto; display: block;
+.production-credit {
+  font-size: clamp(.75rem, 1.5vw, 1.3rem); color: rgba(255,255,255,.35);
+  letter-spacing: .08em; margin-top: clamp(.4rem, 1vw, 1rem);
 }
 
 .waiting-url {
@@ -335,8 +336,8 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: whi
   <p>Cinéma en plein air · Place Limouloise</p>
   <div class="sponsor-strip">
     <p>Merci à nos partenaires</p>
-    <img src="https://firebasestorage.googleapis.com/v0/b/limoilou-quiz.firebasestorage.app/o/logos%2Fpartners-white.png?alt=media&token=03604fc3-f480-4c2a-a0d0-383e93148f57" alt="Partenaires">
   </div>
+  <p class="production-credit">Une production Limoilou en VRAC</p>
 </div>
 
 <!-- WAITING -->
@@ -351,8 +352,8 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: whi
   <p class="waiting-pulse pulse">⏳ Le quiz commence bientôt…</p>
   <div class="sponsor-strip">
     <p>Merci à nos partenaires</p>
-    <img src="https://firebasestorage.googleapis.com/v0/b/limoilou-quiz.firebasestorage.app/o/logos%2Fpartners-white.png?alt=media&token=03604fc3-f480-4c2a-a0d0-383e93148f57" alt="Partenaires">
   </div>
+  <p class="production-credit">Une production Limoilou en VRAC</p>
 </div>
 
 <!-- QUESTION -->
@@ -371,7 +372,7 @@ body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: whi
   <div id="d-q-text">Chargement…</div>
   <div class="d-ans-grid">
     <div class="d-ans-card"><span class="d-ans-icon"></span><img class="d-ans-img" src="" alt=""><span class="d-ans-text"></span></div>
-    <div class="d-ans-card"><span class="d-ans-icon"></span><img class="d-ans-img" src="" alt=""><span class="d-ans-text"></span></div>
+    <div class="d-ans-card"><span class="d-ans-icon"></span><img clase="d-ans-img" src="" alt=""><span class="d-ans-text"></span></div>
     <div class="d-ans-card"><span class="d-ans-icon"></span><img class="d-ans-img" src="" alt=""><span class="d-ans-text"></span></div>
     <div class="d-ans-card"><span class="d-ans-icon"></span><img class="d-ans-img" src="" alt=""><span class="d-ans-text"></span></div>
   </div>
