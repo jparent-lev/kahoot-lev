@@ -170,7 +170,7 @@ async function submitAnswer(answerIndex) {
   if (!q || !myId) return;
 
   const elapsed  = (Date.now() - session.questionStartedAt) / 1000;
-  const timeLeft = Math.max(0, q.timer - elapsed);
+  const timeLeft = Math.max(0, Math.min(q.timer, q.timer - elapsed));
   const points   = answerIndex === q.correct
     ? Math.round(1000 * (timeLeft / q.timer))
     : 0;
